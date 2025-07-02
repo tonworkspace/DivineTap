@@ -1,0 +1,212 @@
+body {
+  background: var(--tg-theme-secondary-bg-color, white);
+  padding: 0;
+  margin: 0;
+}
+
+/* Example of theme-aware styling */
+.bg-theme-primary {
+  @apply bg-white dark:bg-black;
+}
+
+.text-theme-primary {
+  @apply text-gray-900 dark:text-white;
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes fan-spin {
+  0% { 
+    transform: rotate(0deg) translateY(-50%);
+    filter: blur(0.5px) brightness(1);
+  }
+  25% {
+    filter: blur(0.8px) brightness(1.1);
+  }
+  50% { 
+    transform: rotate(180deg) translateY(-50%);
+    filter: blur(0.5px) brightness(1);
+  }
+  75% {
+    filter: blur(0.8px) brightness(1.1);
+  }
+  100% { 
+    transform: rotate(360deg) translateY(-50%);
+    filter: blur(0.5px) brightness(1);
+  }
+}
+
+@keyframes particle-pulse {
+  0%, 100% { 
+    opacity: 0.2; 
+    transform: rotate(var(--rotation)) translateX(30px) scale(0.8);
+    filter: blur(0.5px);
+  }
+  50% { 
+    opacity: 1; 
+    transform: rotate(var(--rotation)) translateX(35px) scale(1.2);
+    filter: blur(1px);
+  }
+}
+
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+@keyframes float-slow {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-15px); }
+  100% { transform: translateY(0px); }
+}
+
+@keyframes float-slower {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+  100% { transform: translateY(0px); }
+}
+
+@keyframes float-medium {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+  100% { transform: translateY(0px); }
+}
+
+@keyframes tilt {
+  0%, 50%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(1deg); }
+  75% { transform: rotate(-1deg); }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.3s ease-out;
+}
+
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-float-slow { animation: float-slow 5s ease-in-out infinite; }
+.animate-float-slower { animation: float-slower 7s ease-in-out infinite; }
+.animate-float-medium { animation: float-medium 4s ease-in-out infinite; }
+.animate-tilt { animation: tilt 10s infinite linear; }
+.animate-fade-in {
+  animation: fade-in 0.6s ease-out;
+}
+
+.text-shadow-glow { text-shadow: 0 0 10px rgba(99, 102, 241, 0.5); }
+.drop-shadow-glow { filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.5)); }
+.shadow-glow-sm { box-shadow: 0 0 15px rgba(99, 102, 241, 0.3); }
+.bg-grid-white { background-image: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 0V20M0 1H20' stroke='white' stroke-opacity='0.1'/%3E%3C/svg%3E"); }
+
+.animate-gradient {
+  animation: gradient 3s ease infinite;
+  background-size: 200% 200%;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.p-custom {
+  padding: 0.5rem;
+  margin-bottom: 61px;
+}
+
+.p-custom2 {
+  padding: 1.5rem;
+  margin-bottom: 82px;
+}
+
+.snackbar-top {
+  position: fixed !important;
+  top: 16px !important;
+  z-index: 9999 !important;
+}
+
+@keyframes fade-up {
+  0% { 
+    opacity: 0; 
+    transform: translateY(5px); 
+  }
+  50% { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+  100% { 
+    opacity: 0; 
+    transform: translateY(-5px); 
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 1s ease-out forwards;
+}
+
+.font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee var(--scroll-duration) linear infinite;
+}
+
+.animate-pause {
+  animation-play-state: paused;
+}
