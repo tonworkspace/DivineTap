@@ -67,10 +67,10 @@ export const processReferralHarvestBonus = async (
 };
 
 // Function to give welcome bonus to new referred users
-export const giveWelcomeBonus = async (userId: number, referrerId: number) => {
+export const giveWelcomeBonus = async (userId: number,) => {
   try {
     // Check if user already received welcome bonus
-    const { data: existingBonus, error: checkError } = await supabase
+    const { data: existingBonus } = await supabase
       .from('earning_history')
       .select('id')
       .eq('user_id', userId)

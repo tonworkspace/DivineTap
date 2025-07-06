@@ -1,17 +1,17 @@
 import { useState, useEffect, useRef } from "react";
-import { GiBasket, GiFrog } from "react-icons/gi";
+import { GiBasket, GiCoins, GiGems } from "react-icons/gi";
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabaseClient';
 import { Tooltip, InfoTooltip, SuccessTooltip } from '@/components/ui/tooltip';
-import { processReferralHarvestBonus, giveWelcomeBonus } from '@/lib/referralIntegration';
+import { processReferralHarvestBonus } from '@/lib/referralIntegration';
 import { useReferralIntegration } from '@/hooks/useReferralIntegration';
 import { toast } from 'react-hot-toast';
 
-const frogNames = ["Bubbles", "Sprout", "Jumpy", "Lily", "Croaky", "Hopper", "Peppy", "Warty"];
+const divineTappNames = ["Divine", "Sacred", "Holy", "Blessed", "Celestial", "Ethereal", "Mystic", "Enchanted"];
 const rarities = [
-  { type: "Common", color: "bg-green-300", text: "text-green-800", rate: 1, emoji: "🐸" },
-  { type: "Rare", color: "bg-blue-300", text: "text-blue-800", rate: 2, emoji: "🟦" },
-  { type: "Epic", color: "bg-purple-300", text: "text-purple-800", rate: 5, emoji: "💜" },
+  { type: "Common", color: "bg-green-300", text: "text-green-800", rate: 1, emoji: "🪙" },
+  { type: "Rare", color: "bg-blue-300", text: "text-blue-800", rate: 2, emoji: "💎" },
+  { type: "Epic", color: "bg-purple-300", text: "text-purple-800", rate: 5, emoji: "✨" },
 ];
 
 const DAILY_LIMIT = 4;
@@ -24,8 +24,8 @@ const rarityCatchChances: Record<string, number> = {
 };
 
 
-function getRandomFrog() {
-  const name = frogNames[Math.floor(Math.random() * frogNames.length)];
+function getRandomDivineTapp() {
+  const name = divineTappNames[Math.floor(Math.random() * divineTappNames.length)];
   const rarity =
     Math.random() < 0.7
       ? rarities[0]
@@ -57,7 +57,7 @@ function getRandomFrog() {
 
 const getRandomUpgradeIncrement = () => 1000 + Math.floor(Math.random() * 1001); // 1000-2000
 
-export const FrogsMiner = () => {
+export const DivineTappMiner = () => {
   const { user } = useAuth();
   const userId = String(user?.id || 'guest');
   const [isLoading, setIsLoading] = useState(true);
@@ -82,9 +82,9 @@ export const FrogsMiner = () => {
   });
 
   // Optimize initial state loading
-  const [frogs, setFrogs] = useState<any[]>(() => {
+  const [divineTapps, setDivineTapps] = useState<any[]>(() => {
     try {
-      const cached = localStorage.getItem(`${userId}_frogs`);
+      const cached = localStorage.getItem(`${userId}_divineTapps`);
       return cached ? JSON.parse(cached) : [];
     } catch {
       return [];
@@ -125,7 +125,10 @@ export const FrogsMiner = () => {
   const [harvestCooldown, setHarvestCooldown] = useState(0);
 
   // Add referral integration
-  const { markUserAsActive, hasReferrer, isActiveReferral } = useReferralIntegration();
+  const { markUserAsActive } = useReferralIntegration();
+
+  // Add this state near the top of the component
+  const [showTestingPanel, setShowTestingPanel] = useState(false);
 
   // Optimize the initialization effect
   useEffect(() => {
@@ -165,7 +168,7 @@ export const FrogsMiner = () => {
             .single();
 
           // While Supabase is loading, immediately show localStorage data
-          const localData = localStorage.getItem(`${userId}_frogs`);
+          const localData = localStorage.getItem(`${userId}_divineTapps`);
           if (localData) {
             setTimeout(() => {
               setLoadingProgress(60);
@@ -173,7 +176,7 @@ export const FrogsMiner = () => {
             }, 600);
             
             const parsedLocalData = JSON.parse(localData);
-            setFrogs(parsedLocalData);
+            setDivineTapps(parsedLocalData);
             // Preserve current points instead of resetting
             setPoints(currentPointsValue);
             setIsLoading(false); // Show content immediately
@@ -193,7 +196,7 @@ export const FrogsMiner = () => {
             dataCache.current.data = data;
 
             // Update state with Supabase data, but preserve points
-            setFrogs(data.frogs || []);
+            setDivineTapps(data.divineTapps || []);
             // IMPORTANT: Use the higher value between Supabase and localStorage points
             const supabasePoints = data.points || 0;
             const finalPoints = Math.max(currentPointsValue, supabasePoints);
@@ -203,7 +206,7 @@ export const FrogsMiner = () => {
 
             // Update localStorage with fresh data, preserving the higher points value
             updateLocalStorageForUser({
-              frogs: data.frogs || [],
+              divineTapps: data.divineTapps || [],
               points: finalPoints,
               totalHarvested: data.total_harvested || 0,
               caughtToday: data.caught_today || 0,
@@ -217,9 +220,9 @@ export const FrogsMiner = () => {
           }, 600);
           
           // For guest users or recent syncs, just use localStorage
-          const localData = localStorage.getItem(`${userId}_frogs`);
+          const localData = localStorage.getItem(`${userId}_divineTapps`);
           if (localData) {
-            setFrogs(JSON.parse(localData));
+            setDivineTapps(JSON.parse(localData));
           }
           // Ensure points are loaded from localStorage
           setPoints(currentPointsValue);
@@ -233,9 +236,9 @@ export const FrogsMiner = () => {
       } catch (error) {
         console.error('Error loading data:', error);
         // Fallback to localStorage on error
-        const localData = localStorage.getItem(`${userId}_frogs`);
+        const localData = localStorage.getItem(`${userId}_divineTapps`);
         if (localData) {
-          setFrogs(JSON.parse(localData));
+          setDivineTapps(JSON.parse(localData));
         }
         // Preserve points even on error
         const currentPoints = localStorage.getItem(`${userId}_points`);
@@ -287,7 +290,7 @@ export const FrogsMiner = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const [wildFrog, setWildFrog] = useState<
+  const [wildDivineTapp, setWildDivineTapp] = useState<
     { name: string; color: string; text: string; rate: number; rarity: string; emoji: string; id: string; ability?: any; level: number; nextUpgradeCost: number | null } | null
   >(null);
   const [points, setPoints] = useState(() => {
@@ -300,10 +303,10 @@ export const FrogsMiner = () => {
       const timeDiff = Math.floor((currentTime - lastTime) / 1000); // seconds
       
       // Calculate offline mining
-      const cachedFrogs = localStorage.getItem(`${userId}_frogs`);
-      if (cachedFrogs) {
-        const frogs = JSON.parse(cachedFrogs);
-        const totalMiningRate = frogs.reduce((sum: number, f: any) => sum + f.rate, 0);
+      const cachedDivineTapps = localStorage.getItem(`${userId}_divineTapps`);
+      if (cachedDivineTapps) {
+        const divineTapps = JSON.parse(cachedDivineTapps);
+        const totalMiningRate = divineTapps.reduce((sum: number, f: any) => sum + f.rate, 0);
         const offlinePoints = totalMiningRate * timeDiff;
         return parseInt(stored, 10) + offlinePoints;
       }
@@ -349,8 +352,8 @@ export const FrogsMiner = () => {
  
 
   // Enhanced mining effect with session persistence
-  const frogsRef = useRef(frogs);
-  useEffect(() => { frogsRef.current = frogs; }, [frogs]);
+  const divineTappsRef = useRef(divineTapps);
+  useEffect(() => { divineTappsRef.current = divineTapps; }, [divineTapps]);
 
   useEffect(() => {
     // Initialize session if not exists
@@ -362,7 +365,7 @@ export const FrogsMiner = () => {
     const interval = setInterval(() => {
       const currentTime = Date.now();
       setPoints((prev) => {
-        const newPoints = prev + frogsRef.current.reduce((sum, f) => sum + f.rate, 0);
+        const newPoints = prev + divineTappsRef.current.reduce((sum, f) => sum + f.rate, 0);
         // Update last mining time
         localStorage.setItem(`${userId}_lastMiningTime`, currentTime.toString());
         setLastMiningTime(currentTime);
@@ -386,13 +389,13 @@ export const FrogsMiner = () => {
 
   // Enhanced localStorage update function
   const updateLocalStorageForUser = (data: {
-    frogs: any[],
+    divineTapps: any[],
     points: number,
     totalHarvested: number,
     caughtToday: number,
     lastResetDate: string
   }) => {
-    localStorage.setItem(`${userId}_frogs`, JSON.stringify(data.frogs));
+    localStorage.setItem(`${userId}_divineTapps`, JSON.stringify(data.divineTapps));
     // IMPORTANT: Only update points if the new value is higher or if explicitly harvesting
     const currentPoints = localStorage.getItem(`${userId}_points`);
     const currentPointsValue = currentPoints ? parseInt(currentPoints, 10) : 0;
@@ -419,10 +422,10 @@ export const FrogsMiner = () => {
     return `${hours}h ${minutes}m`;
   };
 
-  // Mining effect: Each frog mines points per second based on rarity
+  // Mining effect: Each Divine Tapp mines points per second based on rarity
   useEffect(() => {
     const interval = setInterval(() => {
-      setPoints((prev) => prev + frogsRef.current.reduce((sum, f) => sum + f.rate, 0));
+      setPoints((prev) => prev + divineTappsRef.current.reduce((sum, f) => sum + f.rate, 0));
     }, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -461,14 +464,14 @@ export const FrogsMiner = () => {
     setCatchCooldown(seconds);
   };
 
-  // Save frogs to localStorage whenever they change
+  // Save Divine Tapps to localStorage whenever they change
   useEffect(() => {
-    localStorage.setItem(`${userId}_frogs`, JSON.stringify(frogs));
-    console.log('Saved frogs to localStorage:', frogs);
-    if (page > 1 && (page - 1) * PAGE_SIZE >= frogs.length) {
-      setPage(Math.max(1, Math.ceil(frogs.length / PAGE_SIZE)));
+    localStorage.setItem(`${userId}_divineTapps`, JSON.stringify(divineTapps));
+    console.log('Saved divine tapps to localStorage:', divineTapps);
+    if (page > 1 && (page - 1) * PAGE_SIZE >= divineTapps.length) {
+      setPage(Math.max(1, Math.ceil(divineTapps.length / PAGE_SIZE)));
     }
-  }, [frogs, userId]);
+  }, [divineTapps, userId]);
 
   // Save points to localStorage whenever they change
   useEffect(() => {
@@ -529,46 +532,46 @@ export const FrogsMiner = () => {
     validateAndRecoverPoints();
   }, [userId]);
 
-  // Calculate the cost to catch a new frog
-  const catchCost = 0 + frogs.length * 0;
+  // Calculate the cost to catch a new Divine Tapp
+  const catchCost = 0 + divineTapps.length * 0;
 
-  // Update the findWildFrog function to check croaks
-  const findWildFrog = () => {
+  // Update the findWildDivineTapp function
+  const findWildDivineTapp = () => {
     if (
       caughtToday < DAILY_LIMIT &&
       catchCooldown === 0 &&
-      totalHarvested >= catchCost // Only allow if enough croaks
+      totalHarvested >= catchCost // Only allow if enough divine essence
     ) {
-      setWildFrog(getRandomFrog());
+      setWildDivineTapp(getRandomDivineTapp());
       setCatchAnim(false);
     }
   };
 
-  // Update the catchFrog function to use the persistent cooldown setter
-  const catchFrog = () => {
-    trackInteraction('catch_frog');
+  // Update the catchDivineTapp function
+  const catchDivineTapp = () => {
+    trackInteraction('catch_divine_tapp');
     
-    if (wildFrog && caughtToday < DAILY_LIMIT && !catching) {
+    if (wildDivineTapp && caughtToday < DAILY_LIMIT && !catching) {
       setCatching(true);
       setCatchResult(null);
 
       setTimeout(async () => {
-        const bonusCatch = frogs.some(f => f.ability?.type === "Bonus Catch") ? 0.1 : 0;
-        const chance = (rarityCatchChances[wildFrog.rarity] ?? 0.5) + bonusCatch;
+        const bonusCatch = divineTapps.some(f => f.ability?.type === "Bonus Catch") ? 0.1 : 0;
+        const chance = (rarityCatchChances[wildDivineTapp.rarity] ?? 0.5) + bonusCatch;
         if (Math.random() < chance) {
-          const newFrogs = [...frogs, wildFrog];
+          const newDivineTapps = [...divineTapps, wildDivineTapp];
           const newCaughtToday = caughtToday + 1;
           const newTotalHarvested = totalHarvested - catchCost;
 
           // Update state
-          setFrogs(newFrogs);
+          setDivineTapps(newDivineTapps);
           setCatchAnim(true);
           setCaughtToday(newCaughtToday);
           setCatchResult("success");
           setTotalHarvested(newTotalHarvested);
 
           // Immediately save to localStorage
-          localStorage.setItem(`${userId}_frogs`, JSON.stringify(newFrogs));
+          localStorage.setItem(`${userId}_divineTapps`, JSON.stringify(newDivineTapps));
 
           // Immediately sync with Supabase if logged in
           if (user?.id) {
@@ -577,7 +580,7 @@ export const FrogsMiner = () => {
                 points,
                 totalHarvested: newTotalHarvested,
                 caughtToday: newCaughtToday,
-                frogs: newFrogs
+                divineTapps: newDivineTapps
               });
             } catch (error) {
               console.error('Error syncing with Supabase:', error);
@@ -587,19 +590,19 @@ export const FrogsMiner = () => {
           setCatchResult("fail");
         }
         
-        const cooldownReduction = frogs.some(f => f.ability?.type === "Cooldown Reducer") ? 10 : 0;
+        const cooldownReduction = divineTapps.some(f => f.ability?.type === "Cooldown Reducer") ? 10 : 0;
         // FIXED: Use the persistent cooldown setter
         setCatchCooldownWithPersistence(Math.max(0, CATCH_COOLDOWN - cooldownReduction));
         
         setTimeout(() => {
-          setWildFrog(null);
+          setWildDivineTapp(null);
           setCatchAnim(false);
           setCatching(false);
           setCatchResult(null);
         }, 1200);
       }, 1200);
     } else {
-      trackError(new Error('Cannot catch frog - conditions not met'));
+      trackError(new Error('Cannot catch Divine Tapp - conditions not met'));
     }
   };
 
@@ -632,7 +635,7 @@ export const FrogsMiner = () => {
     setIsHarvesting(true);
     
     try {
-      const harvestBonus = frogs.some(f => f.ability?.type === "Harvest Bonus") ? 1.2 : 1;
+      const harvestBonus = divineTapps.some(f => f.ability?.type === "Harvest Bonus") ? 1.2 : 1;
       const pointsToAdd = Math.floor(points * harvestBonus);
       
       // Update total harvested
@@ -666,8 +669,8 @@ export const FrogsMiner = () => {
         processReferralHarvestBonus(user.id, pointsToAdd)
           .then(({ success, bonusAmount, referrerId }) => {
             if (success && bonusAmount > 0) {
-              console.log(`Referral bonus processed: ${bonusAmount} croaks to referrer ${referrerId}`);
-              toast.success(`Your referrer earned ${bonusAmount} croaks from your harvest!`);
+              console.log(`Referral bonus processed: ${bonusAmount} divine essence to referrer ${referrerId}`);
+              toast.success(`Your referrer earned ${bonusAmount} divine essence from your harvest!`);
             }
           })
           .catch(error => {
@@ -682,7 +685,7 @@ export const FrogsMiner = () => {
           points: 0,
           totalHarvested: totalHarvested + pointsToAdd,
           caughtToday: 0,
-          frogs
+          divineTapps
         }).catch(error => {
           console.error('Error syncing harvest with Supabase:', error);
         });
@@ -722,51 +725,51 @@ export const FrogsMiner = () => {
     localStorage.setItem(`${userId}_lastHarvestTime`, lastHarvestTime.toString());
   }, [lastHarvestTime, userId]);
 
-  const upgradeFrog = async (id: string) => {
-    trackInteraction('upgrade_frog');
+  const upgradeDivineTapp = async (id: string) => {
+    trackInteraction('upgrade_divine_tapp');
     
-    setFrogs((currentFrogs) => {
-      const updatedFrogs = currentFrogs.map((frog) => {
+    setDivineTapps((currentDivineTapps) => {
+      const updatedDivineTapps = currentDivineTapps.map((divineTapp) => {
         if (
-          frog.id === id &&
-          frog.level < 10 &&
-          frog.nextUpgradeCost !== null &&
-          totalHarvested >= frog.nextUpgradeCost
+          divineTapp.id === id &&
+          divineTapp.level < 10 &&
+          divineTapp.nextUpgradeCost !== null &&
+          totalHarvested >= divineTapp.nextUpgradeCost
         ) {
           // Deduct the upgrade cost
-          const newTotalHarvested = totalHarvested - frog.nextUpgradeCost!;
+          const newTotalHarvested = totalHarvested - divineTapp.nextUpgradeCost!;
           setTotalHarvested(newTotalHarvested);
           localStorage.setItem(`${userId}_totalHarvested`, newTotalHarvested.toString());
           
-          // Return upgraded frog
-          const upgradedFrog = {
-            ...frog,
-            level: frog.level + 1,
-            rate: frog.rate + 1,
-            nextUpgradeCost: frog.level >= 9 ? null : frog.nextUpgradeCost! + getRandomUpgradeIncrement(),
+          // Return upgraded divine tapp
+          const upgradedDivineTapp = {
+            ...divineTapp,
+            level: divineTapp.level + 1,
+            rate: divineTapp.rate + 1,
+            nextUpgradeCost: divineTapp.level >= 9 ? null : divineTapp.nextUpgradeCost! + getRandomUpgradeIncrement(),
           };
           
-          return upgradedFrog;
+          return upgradedDivineTapp;
         }
-        return frog;
+        return divineTapp;
       });
 
       // Immediately save to localStorage
-      localStorage.setItem(`${userId}_frogs`, JSON.stringify(updatedFrogs));
+      localStorage.setItem(`${userId}_divineTapps`, JSON.stringify(updatedDivineTapps));
       
       // Sync with Supabase if user is logged in
       if (user?.id) {
         syncWithSupabase({
           points,
-          totalHarvested: totalHarvested - (currentFrogs.find(f => f.id === id)?.nextUpgradeCost ?? 0),
+          totalHarvested: totalHarvested - (currentDivineTapps.find(f => f.id === id)?.nextUpgradeCost ?? 0),
           caughtToday,
-          frogs: updatedFrogs
+          divineTapps: updatedDivineTapps
         }).catch(error => {
           console.error('Error syncing upgrade with Supabase:', error);
         });
       }
 
-      return updatedFrogs;
+      return updatedDivineTapps;
     });
   };
 
@@ -806,7 +809,7 @@ export const FrogsMiner = () => {
           total_harvested: data.totalHarvested,
           caught_today: data.caughtToday,
           last_reset_date: new Date().toDateString(),
-          frogs: data.frogs
+          divineTapps: data.divineTapps
         });
 
       if (error) throw error;
@@ -827,13 +830,13 @@ export const FrogsMiner = () => {
 
   // Loading tips for better engagement
   const loadingTips = [
-    "🐸 Each frog mines points automatically!",
-    "🎯 Higher rarity frogs mine faster",
-    "⚡ Upgrade your frogs to increase mining speed",
-    "🌿 Catch new frogs daily to expand your collection",
-    "💎 Epic frogs are rare but very powerful",
+    "🪙 Each Divine Tapp mines points automatically!",
+    "🎯 Higher rarity Divine Tapps mine faster",
+    "⚡ Upgrade your Divine Tapps to increase mining speed",
+    "🌟 Discover new Divine Tapps daily to expand your collection",
+    "✨ Epic Divine Tapps are rare but very powerful",
     "🔄 Harvest your points regularly",
-    "🏆 Level up frogs to unlock their full potential",
+    "🏆 Level up Divine Tapps to unlock their full potential",
     "🎁 Daily catch limit resets at midnight"
   ];
 
@@ -852,7 +855,7 @@ export const FrogsMiner = () => {
   const debugDataState = () => {
     console.log('=== DEBUG DATA STATE ===');
     console.log('User ID:', userId);
-    console.log('Frogs:', frogs);
+    console.log('Divine Tapps:', divineTapps);
     console.log('Points:', points);
     console.log('Total Harvested:', totalHarvested);
     console.log('Caught Today:', caughtToday);
@@ -861,7 +864,7 @@ export const FrogsMiner = () => {
     console.log('Last Mining Time:', lastMiningTime);
     
     // Check localStorage
-    console.log('localStorage frogs:', localStorage.getItem(`${userId}_frogs`));
+    console.log('localStorage divineTapps:', localStorage.getItem(`${userId}_divineTapps`));
     console.log('localStorage points:', localStorage.getItem(`${userId}_points`));
     console.log('localStorage totalHarvested:', localStorage.getItem(`${userId}_totalHarvested`));
     console.log('localStorage caughtToday:', localStorage.getItem(`${userId}_caughtToday`));
@@ -879,7 +882,7 @@ export const FrogsMiner = () => {
   useEffect(() => {
     // Debug on mount and when key data changes
     debugDataState();
-  }, [frogs, points, totalHarvested, caughtToday, catchCooldown]);
+  }, [divineTapps, points, totalHarvested, caughtToday, catchCooldown]);
 
   // Add these validation functions
   const validateFrogData = (frog: any) => {
@@ -887,12 +890,12 @@ export const FrogsMiner = () => {
     const missing = required.filter(field => !frog[field]);
     
     if (missing.length > 0) {
-      console.error('Invalid frog data - missing fields:', missing, frog);
+      console.error('Invalid Divine Tapp data - missing fields:', missing, frog);
       return false;
     }
     
     if (frog.rate < 0 || frog.level < 1 || frog.level > 10) {
-      console.error('Invalid frog stats:', frog);
+      console.error('Invalid Divine Tapp stats:', frog);
       return false;
     }
     
@@ -907,9 +910,9 @@ export const FrogsMiner = () => {
     if (caughtToday < 0 || caughtToday > DAILY_LIMIT) errors.push('Invalid caught today count');
     if (catchCooldown < 0) errors.push('Cooldown cannot be negative');
     
-    frogs.forEach((frog, index) => {
+    divineTapps.forEach((frog, index) => {
       if (!validateFrogData(frog)) {
-        errors.push(`Invalid frog at index ${index}`);
+        errors.push(`Invalid Divine Tapp at index ${index}`);
       }
     });
     
@@ -924,96 +927,110 @@ export const FrogsMiner = () => {
   // Add validation to key state changes
   useEffect(() => {
     validateGameState();
-  }, [frogs, points, totalHarvested, caughtToday, catchCooldown]);
+  }, [divineTapps, points, totalHarvested, caughtToday, catchCooldown]);
 
-  // Add this testing panel (only in development)
+  // Update the TestingPanel component
   const TestingPanel = () => {
     if (process.env.NODE_ENV !== 'development') return null;
     
     return (
-      <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-lg text-xs max-w-xs z-50">
-        <div className="font-bold mb-2">Testing Panel</div>
+      <>
+        {/* Toggle button */}
+        <button
+          onClick={() => setShowTestingPanel(!showTestingPanel)}
+          className="fixed bottom-4 right-4 bg-gray-800 hover:bg-gray-700 text-white p-2 rounded-full shadow-lg z-50 transition-all duration-200"
+          title={showTestingPanel ? "Hide Testing Panel" : "Show Testing Panel"}
+        >
+          {showTestingPanel ? "✕" : "⚙️"}
+        </button>
         
-        <div className="space-y-1 mb-3">
-          <div>Frogs: {frogs.length}</div>
-          <div>Points: {points}</div>
-          <div>Total: {totalHarvested}</div>
-          <div>Caught: {caughtToday}/{DAILY_LIMIT}</div>
-          <div>Cooldown: {catchCooldown}s</div>
-          <div>Mining Rate: {frogs.reduce((sum, f) => sum + f.rate, 0)}/s</div>
-        </div>
-        
-        <div className="space-y-1">
-          <Tooltip content="Add 1000 points for testing">
-            <button 
-              onClick={() => setPoints(prev => prev + 1000)}
-              className="bg-blue-500 px-2 py-1 rounded text-xs"
-            >
-              +1000 Points
-            </button>
-          </Tooltip>
-          <Tooltip content="Add 1000 croaks for testing">
-            <button 
-              onClick={() => setTotalHarvested(prev => prev + 1000)}
-              className="bg-green-500 px-2 py-1 rounded text-xs ml-1"
-            >
-              +1000 Croaks
-            </button>
-          </Tooltip>
-          <Tooltip content="Reset catch cooldown">
-            <button 
-              onClick={() => setCatchCooldown(0)}
-              className="bg-yellow-500 px-2 py-1 rounded text-xs ml-1"
-            >
-              Reset Cooldown
-            </button>
-          </Tooltip>
-          <Tooltip content="Reset daily catch limit">
-            <button 
-              onClick={() => setCaughtToday(0)}
-              className="bg-purple-500 px-2 py-1 rounded text-xs ml-1"
-            >
-              Reset Daily
-            </button>
-          </Tooltip>
-          <Tooltip content="Log current game state to console">
-            <button 
-              onClick={debugDataState}
-              className="bg-red-500 px-2 py-1 rounded text-xs ml-1"
-            >
-              Debug Log
-            </button>
-          </Tooltip>
-          <Tooltip content="Reset harvest cooldown">
-            <button 
-              onClick={() => setHarvestCooldown(0)}
-              className="bg-orange-500 px-2 py-1 rounded text-xs ml-1"
-            >
-              Reset Harvest CD
-            </button>
-          </Tooltip>
-          <Tooltip content="Add 500 points for testing">
-            <button 
-              onClick={() => setPoints(prev => prev + 500)}
-              className="bg-indigo-500 px-2 py-1 rounded text-xs ml-1"
-            >
-              +500 Points
-            </button>
-          </Tooltip>
-        </div>
-        
-        <div className="mt-2 text-gray-300">
-          <div>Render: {performanceMetrics.renderCount}</div>
-          <div>Avg: {performanceMetrics.averageRenderTime.toFixed(1)}ms</div>
-        </div>
-      </div>
+        {/* Testing panel */}
+        {showTestingPanel && (
+          <div className="fixed bottom-16 right-4 bg-black/80 text-white p-4 rounded-lg text-xs max-w-xs z-50">
+            <div className="font-bold mb-2">Testing Panel</div>
+            
+            <div className="space-y-1 mb-3">
+              <div>Divine Tapps: {divineTapps.length}</div>
+              <div>Points: {points}</div>
+              <div>Total: {totalHarvested}</div>
+              <div>Caught: {caughtToday}/{DAILY_LIMIT}</div>
+              <div>Cooldown: {catchCooldown}s</div>
+              <div>Mining Rate: {divineTapps.reduce((sum, f) => sum + f.rate, 0)}/s</div>
+            </div>
+            
+            <div className="space-y-1">
+              <Tooltip content="Add 1000 points for testing">
+                <button 
+                  onClick={() => setPoints(prev => prev + 1000)}
+                  className="bg-blue-500 px-2 py-1 rounded text-xs"
+                >
+                  +1000 Points
+                </button>
+              </Tooltip>
+              <Tooltip content="Add 1000 divine essence for testing">
+                <button 
+                  onClick={() => setTotalHarvested(prev => prev + 1000)}
+                  className="bg-green-500 px-2 py-1 rounded text-xs ml-1"
+                >
+                  +1000 Divine Essence
+                </button>
+              </Tooltip>
+              <Tooltip content="Reset catch cooldown">
+                <button 
+                  onClick={() => setCatchCooldown(0)}
+                  className="bg-yellow-500 px-2 py-1 rounded text-xs ml-1"
+                >
+                  Reset Cooldown
+                </button>
+              </Tooltip>
+              <Tooltip content="Reset daily catch limit">
+                <button 
+                  onClick={() => setCaughtToday(0)}
+                  className="bg-purple-500 px-2 py-1 rounded text-xs ml-1"
+                >
+                  Reset Daily
+                </button>
+              </Tooltip>
+              <Tooltip content="Log current game state to console">
+                <button 
+                  onClick={debugDataState}
+                  className="bg-red-500 px-2 py-1 rounded text-xs ml-1"
+                >
+                  Debug Log
+                </button>
+              </Tooltip>
+              <Tooltip content="Reset harvest cooldown">
+                <button 
+                  onClick={() => setHarvestCooldown(0)}
+                  className="bg-orange-500 px-2 py-1 rounded text-xs ml-1"
+                >
+                  Reset Harvest CD
+                </button>
+              </Tooltip>
+              <Tooltip content="Add 500 points for testing">
+                <button 
+                  onClick={() => setPoints(prev => prev + 500)}
+                  className="bg-indigo-500 px-2 py-1 rounded text-xs ml-1"
+                >
+                  +500 Points
+                </button>
+              </Tooltip>
+            </div>
+            
+            <div className="mt-2 text-gray-300">
+              <div>Render: {performanceMetrics.renderCount}</div>
+              <div>Avg: {performanceMetrics.averageRenderTime.toFixed(1)}ms</div>
+            </div>
+          </div>
+        )}
+      </>
     );
   };
 
   // Add backup and recovery functions
   const backupGameData = () => {
     const backup = {
-      frogs,
+      divineTapps,
       points,
       totalHarvested,
       caughtToday,
@@ -1026,29 +1043,11 @@ export const FrogsMiner = () => {
     console.log('Game data backed up');
   };
 
-  // const recoverGameData = () => {
-  //   const backup = localStorage.getItem(`${userId}_backup`);
-  //   if (backup) {
-  //     try {
-  //       const data = JSON.parse(backup);
-  //       setFrogs(data.frogs || []);
-  //       setPoints(data.points || 0);
-  //       setTotalHarvested(data.totalHarvested || 0);
-  //       setCaughtToday(data.caughtToday || 0);
-  //       setSessionStartTime(data.sessionStartTime || Date.now());
-  //       setLastMiningTime(data.lastMiningTime || Date.now());
-  //       console.log('Game data recovered from backup');
-  //     } catch (error) {
-  //       console.error('Failed to recover backup:', error);
-  //     }
-  //   }
-  // };
-
   // Auto-backup every 5 minutes
   useEffect(() => {
     const interval = setInterval(backupGameData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [frogs, points, totalHarvested, caughtToday]);
+  }, [divineTapps, points, totalHarvested, caughtToday]);
 
   // Track first interaction
   useEffect(() => {
@@ -1105,7 +1104,7 @@ export const FrogsMiner = () => {
             <div className="relative w-16 h-16">
               <div className="absolute inset-0 bg-green-500/20 rounded-full blur-lg animate-pulse"></div>
               <div className="relative w-full h-full flex items-center justify-center">
-                <GiFrog size={40} className="text-green-600 animate-bounce" />
+                <GiCoins size={40} className="text-green-600 animate-bounce" />
               </div>
               
               {/* Fewer orbiting particles */}
@@ -1132,8 +1131,8 @@ export const FrogsMiner = () => {
               {loadingTips[currentTipIndex]}
             </div>
             <div className="text-xs text-gray-500 animate-pulse">
-              {loadingProgress < 50 ? "🐸 Hopping into your collection..." :
-               loadingProgress < 80 ? "🌿 Gathering your frogs..." :
+              {loadingProgress < 50 ? "🪙 Manifesting into your collection..." :
+               loadingProgress < 80 ? "🌟 Gathering your Divine Tapps..." :
                loadingProgress < 100 ? "✨ Almost ready..." :
                "🎉 Welcome back!"}
             </div>
@@ -1151,11 +1150,11 @@ export const FrogsMiner = () => {
                 </InfoTooltip>
               </div>
               <div className="flex items-center gap-3">
-                <InfoTooltip content="Total time your frogs have been actively mining points">
+                <InfoTooltip content="Total time your Divine Tapps have been actively mining points">
                   <span className="text-blue-600 cursor-help">⏱️ {getTotalMiningTime()}</span>
                 </InfoTooltip>
-                <SuccessTooltip content={`Your frogs are mining ${frogs.reduce((sum, f) => sum + f.rate, 0)} points every second!`}>
-                  <span className="text-green-600 font-bold cursor-help">⚡ {frogs.reduce((sum, f) => sum + f.rate, 0)}/s</span>
+                <SuccessTooltip content={`Your Divine Tapps are mining ${divineTapps.reduce((sum, f) => sum + f.rate, 0)} points every second!`}>
+                  <span className="text-green-600 font-bold cursor-help">⚡ {divineTapps.reduce((sum, f) => sum + f.rate, 0)}/s</span>
                 </SuccessTooltip>
               </div>
             </div>
@@ -1164,12 +1163,12 @@ export const FrogsMiner = () => {
           {/* Points Display */}
           <div className="flex flex-col items-center mb-2">
             <div className="text-4xl font-bold text-green-800 flex items-center gap-2">
-              <GiFrog size={32} className="text-green-600" />
-              <InfoTooltip content="Points mined by your frogs. Each frog mines points per second based on their rarity and level!">
+              <GiCoins size={32} className="text-green-600" />
+              <InfoTooltip content="Points mined by your Divine Tapps. Each Divine Tapp mines points per second based on their rarity and level!">
                 <span className="cursor-help">{points}</span>
               </InfoTooltip>
             </div>
-            <div className="text-sm text-green-600">Each frog mines points per second based on rarity!</div>
+            <div className="text-sm text-green-600">Each Divine Tapp mines points per second based on rarity!</div>
             {caughtToday >= DAILY_LIMIT && (
               <div className="relative group w-full flex flex-col items-center">
                 <Tooltip 
@@ -1180,9 +1179,9 @@ export const FrogsMiner = () => {
                         {points === 0 ? "No points to harvest" :
                          isHarvesting ? "Processing harvest..." :
                          harvestCooldown > 0 ? `Cooldown: ${harvestCooldown}s remaining` :
-                         "Collect your mined croaks!"}
+                         "Collect your mined divine essence!"}
                       </div>
-                      {frogs.some(f => f.ability?.type === "Harvest Bonus") && (
+                      {divineTapps.some(f => f.ability?.type === "Harvest Bonus") && (
                         <div className="text-xs text-yellow-300 mt-1">
                           🎁 Harvest Bonus: +20% points!
                         </div>
@@ -1211,7 +1210,7 @@ export const FrogsMiner = () => {
                 </Tooltip>
                 {harvested && (
                   <div className="text-green-700 mt-1 animate-bounce font-bold">
-                    +{Math.floor(points * (frogs.some(f => f.ability?.type === "Harvest Bonus") ? 1.2 : 1))} Croaks Harvested!
+                    +{Math.floor(points * (divineTapps.some(f => f.ability?.type === "Harvest Bonus") ? 1.2 : 1))} Divine Essence Harvested!
                   </div>
                 )}
                 {harvestCooldown > 0 && (
@@ -1227,30 +1226,30 @@ export const FrogsMiner = () => {
             <Tooltip 
               content={
                 <div className="text-center">
-                  <div className="font-bold mb-1">Catch New Frogs!</div>
+                  <div className="font-bold mb-1">Discover New Divine Tapps!</div>
                   <div className="text-xs space-y-1">
                     {caughtToday >= DAILY_LIMIT ? (
                       <div className="text-red-300">Daily limit reached! Come back tomorrow.</div>
                     ) : catchCooldown > 0 ? (
-                      <div className="text-yellow-300">Wait {catchCooldown}s before next catch</div>
+                      <div className="text-yellow-300">Wait {catchCooldown}s before next discovery</div>
                     ) : totalHarvested < catchCost ? (
-                      <div className="text-red-300">Need {catchCost - totalHarvested} more croaks</div>
+                      <div className="text-red-300">Need {catchCost - totalHarvested} more divine essence</div>
                     ) : (
                       <>
-                        <div>Find wild frogs in the pond!</div>
+                        <div>Find wild Divine Tapps in the sacred realm!</div>
                         <div>Higher rarity = better mining rate</div>
-                        <div>Some frogs have special abilities</div>
+                        <div>Some Divine Tapps have special abilities</div>
                       </>
                     )}
                   </div>
-                  {frogs.some(f => f.ability?.type === "Cooldown Reducer") && (
+                  {divineTapps.some(f => f.ability?.type === "Cooldown Reducer") && (
                     <div className="text-xs text-blue-300 mt-1">
-                      ⚡ Cooldown Reducer: -10s catch time!
+                      ⚡ Cooldown Reducer: -10s discovery time!
                     </div>
                   )}
-                  {frogs.some(f => f.ability?.type === "Bonus Catch") && (
+                  {divineTapps.some(f => f.ability?.type === "Bonus Catch") && (
                     <div className="text-xs text-green-300 mt-1">
-                      🎯 Bonus Catch: +10% success rate!
+                      🎯 Bonus Discovery: +10% success rate!
                     </div>
                   )}
                 </div>
@@ -1258,7 +1257,7 @@ export const FrogsMiner = () => {
               maxWidth={280}
             >
               <button
-                onClick={findWildFrog}
+                onClick={findWildDivineTapp}
                 disabled={
                   caughtToday >= DAILY_LIMIT ||
                   catchCooldown > 0 ||
@@ -1268,61 +1267,61 @@ export const FrogsMiner = () => {
                   ${(caughtToday >= DAILY_LIMIT || catchCooldown > 0 || totalHarvested < catchCost) ? "opacity-50 cursor-not-allowed" : ""}
                 `}
               >
-                <GiFrog size={40} className="mb-1" />
+                <GiGems size={40} className="mb-1" />
                 {catchCooldown > 0
                   ? `Wait ${catchCooldown}s`
-                  : `Catch Frog`}
+                  : `Discover Divine Tapp`}
               </button>
             </Tooltip>
             <div className="text-xs text-gray-500">
-              {caughtToday}/{DAILY_LIMIT} frogs caught today
+              {caughtToday}/{DAILY_LIMIT} Divine Tapps discovered today
             </div>
           </div>
 
-          {wildFrog && (
+          {wildDivineTapp && (
             <div className={`relative flex flex-col items-center bg-gradient-to-br from-blue-50 via-white to-green-50 rounded-3xl p-6 shadow-2xl border-4 border-blue-300 transition-all duration-700 ${catchAnim ? "scale-110 rotate-2" : "scale-100"}`}>
               {/* Animated background elements */}
               <div className="absolute inset-0 bg-gradient-to-br from-blue-200/20 to-green-200/20 rounded-3xl animate-pulse"></div>
               <div className="absolute -top-2 -right-2 w-4 h-4 bg-yellow-400 rounded-full animate-bounce"></div>
               <div className="absolute -bottom-2 -left-2 w-3 h-3 bg-green-400 rounded-full animate-ping"></div>
               
-              {/* Frog display with enhanced styling */}
-              <div className={`relative flex items-center justify-center w-24 h-24 rounded-full ${wildFrog.color} mb-4 text-5xl shadow-lg border-4 border-white transform transition-all duration-300 ${catchAnim ? "animate-bounce" : "hover:scale-110"}`}>
-                {wildFrog.emoji}
+              {/* Divine Tapp display with enhanced styling */}
+              <div className={`relative flex items-center justify-center w-24 h-24 rounded-full ${wildDivineTapp.color} mb-4 text-5xl shadow-lg border-4 border-white transform transition-all duration-300 ${catchAnim ? "animate-bounce" : "hover:scale-110"}`}>
+                {wildDivineTapp.emoji}
                 {/* Sparkle effects */}
                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-300 rounded-full animate-ping"></div>
                 <div className="absolute -bottom-1 -left-1 w-1.5 h-1.5 bg-blue-300 rounded-full animate-pulse"></div>
               </div>
               
-              {/* Frog info with better typography */}
+              {/* Divine Tapp info with better typography */}
               <div className="text-center mb-4">
-                <div className={`font-black text-xl mb-1 ${wildFrog.text} drop-shadow-lg`}>
-                  {wildFrog.name}
+                <div className={`font-black text-xl mb-1 ${wildDivineTapp.text} drop-shadow-lg`}>
+                  {wildDivineTapp.name}
                 </div>
                 <div className="flex items-center justify-center gap-2 mb-2">
-                  <InfoTooltip content={`${wildFrog.rarity} frogs are ${wildFrog.rarity === 'Common' ? 'easy to find' : wildFrog.rarity === 'Rare' ? 'uncommon but valuable' : 'very rare and powerful'}!`}>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold border-2 ${wildFrog.color} ${wildFrog.text} bg-white/80 cursor-help`}>
-                      {wildFrog.rarity}
+                  <InfoTooltip content={`${wildDivineTapp.rarity} Divine Tapps are ${wildDivineTapp.rarity === 'Common' ? 'easy to find' : wildDivineTapp.rarity === 'Rare' ? 'uncommon but valuable' : 'very rare and powerful'}!`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold border-2 ${wildDivineTapp.color} ${wildDivineTapp.text} bg-white/80 cursor-help`}>
+                      {wildDivineTapp.rarity}
                     </span>
                   </InfoTooltip>
-                  <InfoTooltip content={`This frog will mine ${wildFrog.rate} points every second when added to your collection!`}>
+                  <InfoTooltip content={`This Divine Tapp will mine ${wildDivineTapp.rate} points every second when added to your collection!`}>
                     <span className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-full cursor-help">
-                      ⚡ {wildFrog.rate} pts/sec
+                      ⚡ {wildDivineTapp.rate} pts/sec
                     </span>
                   </InfoTooltip>
                 </div>
                 
                 {/* Ability display */}
-                {wildFrog.ability && (
+                {wildDivineTapp.ability && (
                   <div className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-lg p-2 mb-3 border border-purple-200">
                     <div className="text-xs font-bold text-purple-800 flex items-center gap-1">
                       <span>🛠️</span>
-                      <InfoTooltip content={wildFrog.ability.description}>
-                        <span className="cursor-help">{wildFrog.ability.type}</span>
+                      <InfoTooltip content={wildDivineTapp.ability.description}>
+                        <span className="cursor-help">{wildDivineTapp.ability.type}</span>
                       </InfoTooltip>
                     </div>
                     <div className="text-xs text-purple-600 mt-1">
-                      {wildFrog.ability.description}
+                      {wildDivineTapp.ability.description}
                     </div>
                   </div>
                 )}
@@ -1331,7 +1330,7 @@ export const FrogsMiner = () => {
               {/* Enhanced catch button */}
               <div className="relative">
                 <button
-                  onClick={catchFrog}
+                  onClick={catchDivineTapp}
                   disabled={catching}
                   className={`relative bg-gradient-to-r from-green-400 via-green-500 to-green-600 hover:from-green-500 hover:via-green-600 hover:to-green-700 text-white font-black py-3 px-8 rounded-2xl shadow-lg border-2 border-green-300 transform transition-all duration-200 ${
                     catching 
@@ -1343,12 +1342,12 @@ export const FrogsMiner = () => {
                     {catching ? (
                       <>
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>Catching...</span>
+                        <span>Discovering...</span>
                       </>
                     ) : (
                       <>
-                        <span>🎣</span>
-                        <span>Catch!</span>
+                        <span>🌟</span>
+                        <span>Discover!</span>
                       </>
                     )}
                   </span>
@@ -1362,10 +1361,10 @@ export const FrogsMiner = () => {
               {catching && (
                 <div className="mt-4 text-center">
                   <div className="text-lg font-bold text-blue-800 animate-pulse mb-2">
-                    🎣 Trying to catch...
+                    🌟 Attempting to discover...
                   </div>
                   <div className="text-sm text-gray-600">
-                    {Math.random() > 0.5 ? "The frog is being sneaky!" : "Almost got it!"}
+                    {Math.random() > 0.5 ? "The Divine Tapp is being elusive!" : "Almost discovered it!"}
                   </div>
                 </div>
               )}
@@ -1373,7 +1372,7 @@ export const FrogsMiner = () => {
               {catchResult === "success" && (
                 <div className="mt-4 text-center animate-bounce">
                   <div className="text-3xl mb-2">🎉</div>
-                  <div className="text-xl font-bold text-green-700">Caught!</div>
+                  <div className="text-xl font-bold text-green-700">Discovered!</div>
                   <div className="text-sm text-green-600">Added to your collection!</div>
                 </div>
               )}
@@ -1388,19 +1387,19 @@ export const FrogsMiner = () => {
               
               {/* Catch chance indicator */}
               <div className="mt-3 text-center">
-                <div className="text-xs text-gray-500 mb-1">Catch Chance</div>
-                <InfoTooltip content={`Base chance: ${Math.round((rarityCatchChances[wildFrog.rarity] ?? 0.5) * 100)}% + ${frogs.some(f => f.ability?.type === "Bonus Catch") ? "10% bonus" : "no bonus"} from abilities`}>
+                <div className="text-xs text-gray-500 mb-1">Discovery Chance</div>
+                <InfoTooltip content={`Base chance: ${Math.round((rarityCatchChances[wildDivineTapp.rarity] ?? 0.5) * 100)}% + ${divineTapps.some(f => f.ability?.type === "Bonus Catch") ? "10% bonus" : "no bonus"} from abilities`}>
                   <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden cursor-help">
                     <div 
                       className="h-full bg-gradient-to-r from-red-400 via-yellow-400 to-green-400 transition-all duration-500"
                       style={{ 
-                        width: `${(rarityCatchChances[wildFrog.rarity] ?? 0.5) * 100}%` 
+                        width: `${(rarityCatchChances[wildDivineTapp.rarity] ?? 0.5) * 100}%` 
                       }}
                     ></div>
                   </div>
                 </InfoTooltip>
                 <div className="text-xs text-gray-600 mt-1">
-                  {Math.round((rarityCatchChances[wildFrog.rarity] ?? 0.5) * 100)}% success rate
+                  {Math.round((rarityCatchChances[wildDivineTapp.rarity] ?? 0.5) * 100)}% success rate
                 </div>
               </div>
             </div>
@@ -1408,64 +1407,64 @@ export const FrogsMiner = () => {
 
           <div>
           <div className="flex justify-between items-center mb-2">
-              <div className="font-bold text-lg text-green-800">Your Frogs</div>
-              <InfoTooltip content="Total croaks you've harvested. Use these to upgrade your frogs!">
+              <div className="font-bold text-lg text-green-800">Your Divine Tapps</div>
+              <InfoTooltip content="Total divine essence you've harvested. Use these to upgrade your Divine Tapps!">
                 <div className="text-md text-yellow-700 cursor-help">
-                  Croaks: <span className="font-bold">{totalHarvested}</span>
+                  Divine Essence: <span className="font-bold">{totalHarvested}</span>
                 </div>
               </InfoTooltip>
             </div>
-            {frogs.length === 0 ? (
-              <div className="text-gray-400 italic">No frogs in your collection yet.</div>
+            {divineTapps.length === 0 ? (
+              <div className="text-gray-400 italic">No Divine Tapps in your collection yet.</div>
             ) : (
               <>
                 <div className="max-h-58 overflow-y-auto grid grid-cols-2 gap-3">
-                  {frogs
+                  {divineTapps
                     .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-                    .map((frog: any, idx: number) => {
-                    const upgradeCost = frog.nextUpgradeCost ?? 0;
-                    const isMax = frog.level >= 10;
+                    .map((divineTapp: any, idx: number) => {
+                    const upgradeCost = divineTapp.nextUpgradeCost ?? 0;
+                    const isMax = divineTapp.level >= 10;
                     const canUpgrade = !isMax && totalHarvested >= upgradeCost;
 
                     return (
                       <div
-                        key={frog.id + idx}
-                        className={`relative flex flex-col items-center gap-2 p-5 rounded-2xl border-2 ${frog.color} border-green-300 bg-gradient-to-br from-white/90 to-green-100`}
+                        key={divineTapp.id + idx}
+                        className={`relative flex flex-col items-center gap-2 p-5 rounded-2xl border-2 ${divineTapp.color} border-green-300 bg-gradient-to-br from-white/90 to-green-100`}
                       >
                         {/* Level badge */}
-                        <InfoTooltip content={`Level ${frog.level} frog. Higher levels mine more points per second!`}>
+                        <InfoTooltip content={`Level ${divineTapp.level} Divine Tapp. Higher levels mine more points per second!`}>
                           <div className="absolute top-1 right-1 bg-yellow-300 text-yellow-900 text-xs font-bold px-2 py-0.5 rounded-full shadow cursor-help">
-                            Lv {frog.level}
+                            Lv {divineTapp.level}
                           </div>
                         </InfoTooltip>
-                        <span className="text-3xl drop-shadow">{frog.emoji}</span>
+                        <span className="text-3xl drop-shadow">{divineTapp.emoji}</span>
                         <div className="w-full text-center">
-                          <div className={`font-extrabold text-base ${frog.text} drop-shadow`}>{frog.name}</div>
+                          <div className={`font-extrabold text-base ${divineTapp.text} drop-shadow`}>{divineTapp.name}</div>
                           <div className="text-xs font-semibold">
-                            <InfoTooltip content={`${frog.rarity} frogs are ${frog.rarity === 'Common' ? 'easy to find' : frog.rarity === 'Rare' ? 'uncommon but valuable' : 'very rare and powerful'}!`}>
-                              <span className="inline-block px-2 py-0.5 rounded-full bg-black border border-gray-200 mr-1 cursor-help">{frog.rarity}</span>
+                            <InfoTooltip content={`${divineTapp.rarity} Divine Tapps are ${divineTapp.rarity === 'Common' ? 'easy to find' : divineTapp.rarity === 'Rare' ? 'uncommon but valuable' : 'very rare and powerful'}!`}>
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-black border border-gray-200 mr-1 cursor-help">{divineTapp.rarity}</span>
                             </InfoTooltip>
                             <br/>
-                            {frog.ability && (
-                              <InfoTooltip content={frog.ability.description}>
-                                <span className="ml-1 text-blue-700 cursor-help">🛠 {frog.ability.type}</span>
+                            {divineTapp.ability && (
+                              <InfoTooltip content={divineTapp.ability.description}>
+                                <span className="ml-1 text-blue-700 cursor-help">🛠 {divineTapp.ability.type}</span>
                               </InfoTooltip>
                             )}
                           </div>
                           <Tooltip 
                             content={
                               <div className="text-center">
-                                <div className="font-bold mb-1">Upgrade Frog</div>
+                                <div className="font-bold mb-1">Upgrade Divine Tapp</div>
                                 <div className="text-xs space-y-1">
                                   {isMax ? (
-                                    <div className="text-green-300">This frog is at maximum level!</div>
+                                    <div className="text-green-300">This Divine Tapp is at maximum level!</div>
                                   ) : !canUpgrade ? (
-                                    <div className="text-red-300">Need {upgradeCost - totalHarvested} more croaks</div>
+                                    <div className="text-red-300">Need {upgradeCost - totalHarvested} more divine essence</div>
                                   ) : (
                                     <>
-                                      <div>Cost: {upgradeCost} croaks</div>
-                                      <div>New level: {frog.level + 1}</div>
-                                      <div>New mining rate: {frog.rate + 1}/sec</div>
+                                      <div>Cost: {upgradeCost} divine essence</div>
+                                      <div>New level: {divineTapp.level + 1}</div>
+                                      <div>New mining rate: {divineTapp.rate + 1}/sec</div>
                                     </>
                                   )}
                                 </div>
@@ -1478,9 +1477,9 @@ export const FrogsMiner = () => {
                                 ${!canUpgrade ? "opacity-50 cursor-not-allowed" : "hover:from-yellow-300 hover:to-yellow-400 hover:scale-105"}
                                 transition-all duration-150`}
                               disabled={!canUpgrade}
-                              onClick={() => upgradeFrog(frog.id)}
+                              onClick={() => upgradeDivineTapp(divineTapp.id)}
                             >
-                              {isMax ? "Max" : `Upgrade (${upgradeCost} Croaks)`}
+                              {isMax ? "Max" : `Upgrade (${upgradeCost} Essence)`}
                             </button>
                           </Tooltip>
                         </div>
@@ -1490,7 +1489,7 @@ export const FrogsMiner = () => {
                 </div>
                 
                 {/* Pagination Controls */}
-                {frogs.length > PAGE_SIZE && (
+                {divineTapps.length > PAGE_SIZE && (
                   <div className="flex justify-center items-center gap-2 mt-4">
                     <Tooltip content="Go to previous page">
                       <button
@@ -1507,7 +1506,7 @@ export const FrogsMiner = () => {
                     </Tooltip>
                     
                     <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.ceil(frogs.length / PAGE_SIZE) }, (_, i) => i + 1).map((pageNum) => (
+                      {Array.from({ length: Math.ceil(divineTapps.length / PAGE_SIZE) }, (_, i) => i + 1).map((pageNum) => (
                         <Tooltip key={pageNum} content={`Go to page ${pageNum}`}>
                           <button
                             onClick={() => setPage(pageNum)}
@@ -1525,10 +1524,10 @@ export const FrogsMiner = () => {
                     
                     <Tooltip content="Go to next page">
                       <button
-                        onClick={() => setPage(Math.min(Math.ceil(frogs.length / PAGE_SIZE), page + 1))}
-                        disabled={page >= Math.ceil(frogs.length / PAGE_SIZE)}
+                        onClick={() => setPage(Math.min(Math.ceil(divineTapps.length / PAGE_SIZE), page + 1))}
+                        disabled={page >= Math.ceil(divineTapps.length / PAGE_SIZE)}
                         className={`px-3 py-1 rounded-lg font-bold text-sm transition-all duration-200 ${
-                          page >= Math.ceil(frogs.length / PAGE_SIZE)
+                          page >= Math.ceil(divineTapps.length / PAGE_SIZE)
                             ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
                             : 'bg-green-300 hover:bg-green-400 text-green-900 hover:scale-105'
                         }`}
@@ -1540,10 +1539,10 @@ export const FrogsMiner = () => {
                 )}
                 
                 {/* Page Info */}
-                {frogs.length > PAGE_SIZE && (
+                {divineTapps.length > PAGE_SIZE && (
                   <div className="text-center text-sm text-gray-600 mt-2">
-                    Page {page} of {Math.ceil(frogs.length / PAGE_SIZE)} • 
-                    Showing {((page - 1) * PAGE_SIZE) + 1}-{Math.min(page * PAGE_SIZE, frogs.length)} of {frogs.length} frogs
+                    Page {page} of {Math.ceil(divineTapps.length / PAGE_SIZE)} • 
+                    Showing {((page - 1) * PAGE_SIZE) + 1}-{Math.min(page * PAGE_SIZE, divineTapps.length)} of {divineTapps.length} Divine Tapps
                   </div>
                 )}
               </>

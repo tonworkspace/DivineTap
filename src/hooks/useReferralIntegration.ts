@@ -49,7 +49,7 @@ export const useReferralIntegration = () => {
 
           if (!existingBonus) {
             // Give welcome bonus
-            const result = await giveWelcomeBonus(user.id, referral.referrer_id);
+            const result = await giveWelcomeBonus(user.id);
             if (result.success) {
               setReferralData(prev => prev ? {
                 ...prev,

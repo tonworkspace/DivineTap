@@ -1,16 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
 body {
   background: var(--tg-theme-secondary-bg-color, white);
   padding: 0;
   margin: 0;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Dark mode body background */
+.dark body {
+  background: var(--tg-theme-secondary-bg-color, #1a1a1a);
+  color: #ffffff;
+}
+
+/* Force dark mode styles for testing */
+.dark {
+  color-scheme: dark;
+}
+
+.dark * {
+  color-scheme: dark;
+}
+
+/* Explicit dark mode overrides */
+.dark .bg-white {
+  background-color: #1f2937 !important;
+}
+
+.dark .text-gray-900 {
+  color: #ffffff !important;
+}
+
+.dark .text-gray-700 {
+  color: #d1d5db !important;
+}
+
+.dark .text-gray-600 {
+  color: #9ca3af !important;
+}
+
+.dark .border-gray-200 {
+  border-color: #374151 !important;
+}
+
+.dark .bg-gray-50 {
+  background-color: #111827 !important;
+}
+
+.dark .bg-gray-100 {
+  background-color: #1f2937 !important;
 }
 
 /* Example of theme-aware styling */
 .bg-theme-primary {
-  @apply bg-white dark:bg-black;
+  @apply bg-white dark:bg-gray-900;
 }
 
 .text-theme-primary {
   @apply text-gray-900 dark:text-white;
+}
+
+.bg-theme-secondary {
+  @apply bg-gray-50 dark:bg-gray-800;
+}
+
+.text-theme-secondary {
+  @apply text-gray-600 dark:text-gray-300;
+}
+
+.border-theme {
+  @apply border-gray-200 dark:border-gray-700;
+}
+
+/* Smooth transitions for theme changes */
+* {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+/* Enhanced mystical animations */
+@keyframes mystical-float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translateY(-20px) rotate(180deg);
+    opacity: 1;
+  }
+}
+
+@keyframes mystical-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(59, 130, 246, 0.6);
+    filter: brightness(1.2);
+  }
+}
+
+@keyframes mystical-sparkle {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes mystical-wave {
+  0%, 100% {
+    transform: translateX(0) scaleY(1);
+  }
+  50% {
+    transform: translateX(10px) scaleY(1.1);
+  }
+}
+
+.animate-mystical-float {
+  animation: mystical-float 6s ease-in-out infinite;
+}
+
+.animate-mystical-glow {
+  animation: mystical-glow 4s ease-in-out infinite;
+}
+
+.animate-mystical-sparkle {
+  animation: mystical-sparkle 3s ease-in-out infinite;
+}
+
+.animate-mystical-wave {
+  animation: mystical-wave 5s ease-in-out infinite;
 }
 
 @layer utilities {
@@ -19,6 +145,11 @@ body {
     scrollbar-width: none;
   }
   .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Dark mode scrollbar */
+  .dark .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
 }
@@ -199,14 +330,365 @@ body {
     transform: translateX(0);
   }
   100% {
-    transform: translateX(-50%);
+    transform: translateX(-100%);
   }
 }
 
 .animate-marquee {
-  animation: marquee var(--scroll-duration) linear infinite;
+  animation: marquee 40s linear infinite;
 }
 
 .animate-pause {
   animation-play-state: paused;
+}
+
+/* Custom animations for the Divine Mining Game */
+@keyframes achievement-bounce {
+  0%, 20%, 53%, 80%, 100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+  40%, 43% {
+    transform: translate3d(-50%, -30px, 0);
+  }
+  70% {
+    transform: translate3d(-50%, -15px, 0);
+  }
+  90% {
+    transform: translate3d(-50%, -4px, 0);
+  }
+}
+
+@keyframes mining-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+  }
+}
+
+@keyframes upgrade-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.animate-achievement-bounce {
+  animation: achievement-bounce 1s ease-in-out;
+}
+
+.animate-mining-glow {
+  animation: mining-glow 2s ease-in-out infinite;
+}
+
+.animate-upgrade-pulse {
+  animation: upgrade-pulse 0.5s ease-in-out;
+}
+
+/* Existing custom animations */
+@keyframes cyberpunk-orbit {
+  0% {
+    transform: rotate(0deg) translateX(50px) translateY(-50%);
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(360deg) translateX(50px) translateY(-50%);
+    opacity: 0.8;
+  }
+}
+
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-10px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(10px);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+/* Custom scrollbar for the game */
+.game-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.game-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+}
+
+.game-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 255, 0.5);
+  border-radius: 3px;
+}
+
+.game-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 255, 0.7);
+}
+
+/* Responsive design improvements */
+@media (max-width: 640px) {
+  .game-container {
+    padding: 0.5rem;
+  }
+  
+  .game-text-lg {
+    font-size: 1.125rem;
+  }
+  
+  .game-text-xl {
+    font-size: 1.25rem;
+  }
+}
+
+/* Loading animation improvements */
+@keyframes loading-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-loading-pulse {
+  animation: loading-pulse 1.5s ease-in-out infinite;
+}
+
+/* Button hover effects */
+.game-button {
+  transition: all 0.3s ease;
+}
+
+.game-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 255, 255, 0.3);
+}
+
+.game-button:active {
+  transform: translateY(0);
+}
+
+/* Number formatting animation */
+@keyframes number-update {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-number-update {
+  animation: number-update 0.3s ease-in-out;
+}
+
+/* Achievement notification styling */
+.achievement-notification {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  border: 2px solid #d97706;
+  box-shadow: 0 8px 32px rgba(251, 191, 36, 0.3);
+  backdrop-filter: blur(10px);
+}
+
+/* Mining station glow effect */
+.mining-station-active {
+  box-shadow: 
+    0 0 20px rgba(0, 255, 255, 0.5),
+    0 0 40px rgba(0, 255, 255, 0.3),
+    0 0 60px rgba(0, 255, 255, 0.1);
+}
+
+/* Upgrade button states */
+.upgrade-available {
+  background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+  border: 2px solid #0891b2;
+}
+
+.upgrade-unavailable {
+  background: linear-gradient(135deg, #374151 0%, #4b5563 100%);
+  border: 2px solid #6b7280;
+}
+
+/* Statistics card hover effect */
+.stats-card {
+  transition: all 0.3s ease;
+}
+
+.stats-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 255, 255, 0.2);
+}
+
+/* Progress bar animation */
+@keyframes progress-fill {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+.progress-bar {
+  background: linear-gradient(90deg, #06b6d4, #3b82f6);
+  animation: progress-fill 2s ease-out;
+}
+
+/* Responsive grid adjustments */
+@media (max-width: 480px) {
+  .game-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .game-grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Dark mode optimizations */
+@media (prefers-color-scheme: dark) {
+  .game-background {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .game-border {
+    border-width: 2px;
+  }
+  
+  .game-text {
+    font-weight: 600;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse,
+  .animate-bounce,
+  .animate-spin,
+  .animate-ping {
+    animation: none;
+  }
+  
+  .game-button:hover {
+    transform: none;
+  }
+}
+
+@keyframes achievement-bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0) translateX(-50%);
+  }
+  40% {
+    transform: translateY(-10px) translateX(-50%);
+  }
+  60% {
+    transform: translateY(-5px) translateX(-50%);
+  }
+}
+
+.animate-achievement-bounce {
+  animation: achievement-bounce 0.6s ease-in-out;
+}
+
+.game-button {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.game-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 255, 255, 0.3);
+}
+
+.game-button:active {
+  transform: translateY(0);
+}
+
+.upgrade-available {
+  background: linear-gradient(135deg, #10b981, #059669);
+  border-color: #10b981;
+  color: white;
+}
+
+.upgrade-unavailable {
+  background: linear-gradient(135deg, #6b7280, #4b5563);
+  border-color: #6b7280;
+  color: #9ca3af;
+}
+
+.stats-card {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px;
+  transition: all 0.3s ease;
+}
+
+.stats-card:hover {
+  border-color: rgba(0, 255, 255, 0.4);
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
+}
+
+.game-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.game-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.game-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+}
+
+.game-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 255, 0.5);
+  border-radius: 3px;
+}
+
+.game-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 255, 0.7);
+}
+
+.mining-station-active {
+  box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+}
+
+.animate-number-update {
+  animation: numberUpdate 0.3s ease-out;
+}
+
+@keyframes numberUpdate {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
 }

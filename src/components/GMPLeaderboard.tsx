@@ -1,634 +1,411 @@
-import { useEffect, useState, useMemo } from 'react';
-import { supabase, gmpSystem } from '@/lib/supabaseClient';
-import useAuth from '@/hooks/useAuth';
-import { FaTrophy, FaInfoCircle } from 'react-icons/fa';
-import { getTONPrice } from '@/lib/api';
-import { Tooltip } from '@/components/ui/tooltip';
+import React, { useState, useEffect } from 'react';
+import { GiCrown, GiTrophy, GiMedal, GiCoins, GiGems, GiLightningArc } from 'react-icons/gi';
+import { BiTime, BiTrendingUp, BiTrendingDown, BiStar } from 'react-icons/bi';
+import { useGameContext } from '@/contexts/GameContext';
+import './GMPLeaderboard.css';
 
-interface GMPEntry {
-  position: number | undefined;  // Allow undefined for position
-  username: string;
-  pool_share: number;
-  expected_reward: number;
-  total_sbt: number;
-  isGap?: boolean;
-}
-
-interface PoolStats {
-  totalPool: number;
-  totalParticipants: number;
-  lastDistribution: string;
-  totalUsers?: number;
-}
-
-interface UserEntry {
-  username: string;
-  total_sbt: number;
+interface Player {
   id: string;
-  isGap?: boolean;
-  position?: number;
+  name: string;
+  points: number;
+  gems: number;
+  rank: number;
+  level: number;
+  miningRate: number;
+  totalEarned: number;
+  streak: number;
+  lastActive: number;
+  avatar: string;
+  achievements: string[];
+  isOnline: boolean;
 }
 
-const GMPLeaderboard = () => {
-  const { user } = useAuth();
-  const [entries, setEntries] = useState<GMPEntry[]>([]);
-  const [poolStats, setPoolStats] = useState<PoolStats>({
-    totalPool: 0,
-    totalParticipants: 0,
-    lastDistribution: '',
-    totalUsers: 0
-  });
-  const [userStats, setUserStats] = useState({
-    position: '-',
-    shares: 0,
-    reward: 0,
-    totalShares: 0,
-    poolSize: 0
-  });
-  const [, setTonPrice] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [, setError] = useState<string | null>(null);
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
-  const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
-  const refreshIntervalTime = 60 * 1000; // 1 minute refresh interval
+interface LeaderboardData {
+  topPlayers: Player[];
+  recentActivity: Player[];
+  weeklyWinners: Player[];
+  monthlyWinners: Player[];
+  totalPlayers: number;
+  lastUpdated: number;
+}
 
-  // Add caching mechanism
-  const cacheKey = useMemo(() => `gmp_data_${user?.id}`, [user?.id]);
-  const cacheDuration = 5 * 60 * 1000; // 5 minutes
+// Mock data for demonstration
+const generateMockPlayers = (): Player[] => {
+  const names = [
+    'CyberPunk_2077', 'NeonDreamer', 'DigitalPhantom', 'QuantumMiner', 'CryptoWizard',
+    'ByteMaster', 'PixelHunter', 'DataVampire', 'CodeNinja', 'MatrixRunner',
+    'VirtualSage', 'TechNomad', 'DigitalShaman', 'CyberWarrior', 'NetRunner',
+    'DataMiner', 'QuantumLeap', 'NeonKnight', 'DigitalDragon', 'CryptoKing'
+  ];
+
+  return names.map((name, index) => ({
+    id: `player_${index}`,
+    name,
+    points: Math.floor(Math.random() * 1000000) + 10000,
+    gems: Math.floor(Math.random() * 5000) + 100,
+    rank: index + 1,
+    level: Math.floor(Math.random() * 100) + 1,
+    miningRate: Math.floor(Math.random() * 100) + 1,
+    totalEarned: Math.floor(Math.random() * 5000000) + 100000,
+    streak: Math.floor(Math.random() * 30) + 1,
+    lastActive: Date.now() - Math.floor(Math.random() * 24 * 60 * 60 * 1000),
+    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${name}`,
+    achievements: ['First Mining', 'Speed Demon', 'Millionaire'].slice(0, Math.floor(Math.random() * 3) + 1),
+    isOnline: Math.random() > 0.7
+  })).sort((a, b) => b.points - a.points);
+};
+
+const getRankIcon = (rank: number) => {
+  switch (rank) {
+    case 1: return <GiCrown className="text-yellow-400" />;
+    case 2: return <GiTrophy className="text-gray-300" />;
+    case 3: return <GiMedal className="text-orange-400" />;
+    default: return <BiStar className="text-cyan-400" />;
+  }
+};
+
+const getRankColor = (rank: number) => {
+  switch (rank) {
+    case 1: return 'from-yellow-400 to-yellow-600';
+    case 2: return 'from-gray-300 to-gray-500';
+    case 3: return 'from-orange-400 to-orange-600';
+    case 4:
+    case 5: return 'from-purple-400 to-purple-600';
+    default: return 'from-cyan-400 to-cyan-600';
+  }
+};
+
+const formatNumber = (num: number): string => {
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
+};
+
+const formatTimeAgo = (timestamp: number): string => {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const minutes = Math.floor(diff / (1000 * 60));
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return 'Just now';
+};
+
+export const GMPLeaderboard: React.FC = () => {
+  const { points: userPoints, gems: userGems } = useGameContext();
+  const [currentTab, setCurrentTab] = useState<'global' | 'weekly' | 'monthly' | 'recent'>('global');
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardData>({
+    topPlayers: [],
+    recentActivity: [],
+    weeklyWinners: [],
+    monthlyWinners: [],
+    totalPlayers: 0,
+    lastUpdated: Date.now()
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [userRank, setUserRank] = useState<number | null>(null);
+  const [showAchievements, setShowAchievements] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    const fetchGMPData = async () => {
-      try {
-        setLastRefreshed(new Date());
-        
-        // Check cache first
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          const { data, timestamp } = JSON.parse(cached);
-          if (Date.now() - timestamp < cacheDuration) {
-            setEntries(data.entries);
-            setUserStats(data.userStats);
-            setTonPrice(data.tonPrice);
-            setPoolStats(data.poolStats);
-            setIsLoading(false);
-            return;
-          }
-        }
+    // Simulate loading data
+    const loadLeaderboardData = async () => {
+      setIsLoading(true);
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const mockPlayers = generateMockPlayers();
+      const userPlayer: Player = {
+        id: 'current_user',
+        name: 'You',
+        points: userPoints,
+        gems: userGems,
+        rank: Math.floor(Math.random() * 50) + 1,
+        level: Math.floor(Math.random() * 50) + 1,
+        miningRate: Math.floor(Math.random() * 50) + 1,
+        totalEarned: userPoints * 10,
+        streak: Math.floor(Math.random() * 10) + 1,
+        lastActive: Date.now(),
+        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=user',
+        achievements: ['First Mining'],
+        isOnline: true
+      };
 
-        // Get TON price, pool stats, and total users count in parallel
-        const [price, poolStatsData, { count }] = await Promise.all([
-          getTONPrice(),
-          gmpSystem.getPoolStats(),
-          supabase.from('users').select('*', { count: 'exact', head: true })
-        ]);
-
-        setTonPrice(price);
-
-        // Updated validation to match the actual data structure
-        const poolStats = Array.isArray(poolStatsData) ? poolStatsData[0] : poolStatsData;
-        
-        // Make sure we're getting the count correctly
-        console.log('Total users count:', count);
-        
-        setPoolStats({
-          totalPool: poolStats.pool_size || 0,
-          totalParticipants: poolStats.active_users || 0,
-          lastDistribution: poolStats.last_distribution || '',
-          totalUsers: count || 0  // Ensure we're using the count value
-        });
-
-        // Fetch all users with pagination to get up to 1000 entries
-        let allUsers: UserEntry[] = [];
-        let page = 0;
-        const pageSize = 500; // Fetch in larger chunks to reduce API calls
-        let hasMore = true;
-
-        while (hasMore && allUsers.length < 1000) {
-          const { data, error } = await supabase
-            .from('users')
-            .select('username, total_sbt, id')
-            .gt('total_sbt', 0)
-            .order('total_sbt', { ascending: false })
-            .range(page * pageSize, (page + 1) * pageSize - 1);
-
-          if (error) {
-            throw error;
-          }
-
-          if (data && data.length > 0) {
-            allUsers = [...allUsers, ...data];
-            page++;
-          } else {
-            hasMore = false;
-          }
-
-          // Safety check to prevent infinite loops
-          if (page > 10) {
-            hasMore = false;
-          }
-        }
-
-        // Limit to 1000 entries
-        allUsers = allUsers.slice(0, 1000);
-
-        let userRank = null;
-        
-        // If user exists but not in top entries, add them to the list
-        if (user?.username) {
-          const userInList = allUsers.some(u => u.username === user.username);
-          if (!userInList) {
-            const { data: userData } = await supabase
-              .from('users')
-              .select('username, total_sbt, id')
-              .eq('username', user.username)
-              .single();
-              
-            if (userData) {
-              const { data: rankData } = await supabase.rpc('get_user_rank', { p_username: user.username });
-              userRank = rankData as number;
-
-              allUsers.push({
-                ...userData,
-                position: userRank,
-                isGap: true
-              });
-              // Sort again to maintain order
-              allUsers.sort((a, b) => (b.total_sbt || 0) - (a.total_sbt || 0));
-            }
-          }
-        }
-
-        // Calculate total SBT and user stats
-        const totalSBT = allUsers.reduce((sum, user) => sum + (Number(user.total_sbt) || 0), 0);
-
-        // Format leaderboard entries
-        const formattedEntries = allUsers.map((entry, index) => {
-          const userSBT = Number(entry.total_sbt) || 0;
-          const reward = totalSBT > 0 ? (userSBT / totalSBT) * poolStats.pool_size : 0;
-
-          return {
-            position: entry.isGap ? entry.position : index + 1,
-            username: entry.username || 'Anonymous',  // Default to 'Anonymous' if no username
-            pool_share: userSBT,
-            total_sbt: userSBT,
-            expected_reward: reward,
-            isGap: entry.isGap
-          };
-        });
-
-        setEntries(formattedEntries);
-
-        // Set user stats if user exists and maintain previous stats if not found
-        if (user?.id) {
-          const userEntry = formattedEntries.find(e => e.username === user.username);
-          const updatedUserStats = {
-            position: userEntry?.position?.toString() || '-',
-            shares: userEntry?.total_sbt || 0,
-            reward: userEntry?.expected_reward || 0,
-            totalShares: totalSBT,
-            poolSize: poolStats.pool_size || 0
-          };
-          
-          setUserStats(updatedUserStats);
-          
-          // Cache the results with the updated user stats
-          localStorage.setItem(cacheKey, JSON.stringify({
-            data: {
-              entries: formattedEntries,
-              userStats: updatedUserStats,  // Use the updated stats here, not the old state
-              tonPrice: price,
-              poolStats: {
-                totalPool: poolStats.pool_size || 0,
-                totalParticipants: poolStats.active_users || 0,
-                lastDistribution: poolStats.last_distribution || '',
-                totalUsers: count || 0
-              }
-            },
-            timestamp: Date.now()
-          }));
-        } else {
-          // Cache the results without user stats
-          localStorage.setItem(cacheKey, JSON.stringify({
-            data: {
-              entries: formattedEntries,
-              userStats: userStats,  // Use current state for non-logged in users
-              tonPrice: price,
-              poolStats: {
-                totalPool: poolStats.pool_size || 0,
-                totalParticipants: poolStats.active_users || 0,
-                lastDistribution: poolStats.last_distribution || '',
-                totalUsers: count || 0
-              }
-            },
-            timestamp: Date.now()
-          }));
-        }
-
-      } catch (error) {
-        console.error('Error fetching GMP data:', error);
-        setError('Failed to load GMP data');
-      } finally {
-        setIsLoading(false);
-      }
+      setUserRank(userPlayer.rank);
+      
+      setLeaderboardData({
+        topPlayers: mockPlayers.slice(0, 20),
+        recentActivity: mockPlayers.slice(0, 10).sort(() => Math.random() - 0.5),
+        weeklyWinners: mockPlayers.slice(0, 5),
+        monthlyWinners: mockPlayers.slice(0, 5),
+        totalPlayers: 15420,
+        lastUpdated: Date.now()
+      });
+      
+      setIsLoading(false);
     };
 
-    fetchGMPData();
+    loadLeaderboardData();
+  }, [userPoints, userGems]);
 
-    // Set up auto-refresh interval
-    let refreshInterval: NodeJS.Timeout | null = null;
-    
-    if (autoRefresh) {
-      refreshInterval = setInterval(fetchGMPData, refreshIntervalTime);
+  const getCurrentTabData = () => {
+    switch (currentTab) {
+      case 'global': return leaderboardData.topPlayers;
+      case 'weekly': return leaderboardData.weeklyWinners;
+      case 'monthly': return leaderboardData.monthlyWinners;
+      case 'recent': return leaderboardData.recentActivity;
+      default: return leaderboardData.topPlayers;
     }
-    
-    return () => {
-      if (refreshInterval) clearInterval(refreshInterval);
-    };
-  }, [user, cacheKey, autoRefresh]);
-
-  // Function to manually refresh data
-  const handleManualRefresh = () => {
-    setIsLoading(true);
-    // This will trigger the useEffect to run again
-    setLastRefreshed(new Date());
   };
 
-  // Add error boundary
-  if (!user?.id) {
+  const refreshLeaderboard = async () => {
+    setIsRefreshing(true);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    const mockPlayers = generateMockPlayers();
+    setLeaderboardData(prev => ({
+      ...prev,
+      topPlayers: mockPlayers.slice(0, 20),
+      recentActivity: mockPlayers.slice(0, 10).sort(() => Math.random() - 0.5),
+      weeklyWinners: mockPlayers.slice(0, 5),
+      monthlyWinners: mockPlayers.slice(0, 5),
+      lastUpdated: Date.now()
+    }));
+    setIsRefreshing(false);
+  };
+
+  if (isLoading) {
     return (
-      <div className="bg-black/20 rounded-xl p-2.5 flex flex-col h-full">
-        {/* Connection Required Skeleton */}
-        <div className="flex flex-col items-center justify-center h-full gap-4">
-          <div className="w-12 h-12 rounded-full bg-white/5 animate-pulse flex items-center justify-center">
-            <div className="w-6 h-6 bg-white/10 rounded-full animate-pulse" />
+      <div className="w-full min-h-screen bg-gradient-to-br from-black via-gray-900 to-black p-4">
+        <div className="flex flex-col items-center justify-center space-y-6">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="absolute inset-0 w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" style={{ animationDelay: '0.2s' }}></div>
           </div>
-          <div className="flex flex-col items-center gap-2">
-            <div className="h-4 w-48 bg-white/10 rounded animate-pulse" />
-            <div className="h-3 w-32 bg-white/5 rounded animate-pulse" />
+          <div className="text-cyan-400 font-mono text-lg animate-pulse">
+            LOADING LEADERBOARD...
           </div>
         </div>
       </div>
     );
   }
 
+  return (
+    <div className="w-full min-h-screen bg-gradient-to-br from-black via-gray-900 to-black p-4">
+      {/* Header */}
+      <div className="text-center mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div></div>
+          <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+            🏆 GLOBAL RANKINGS 🏆
+          </h1>
+          <button
+            onClick={refreshLeaderboard}
+            disabled={isRefreshing}
+            className={`p-2 rounded-lg transition-all duration-300 ${
+              isRefreshing 
+                ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                : 'bg-cyan-500/20 border border-cyan-400 text-cyan-300 hover:bg-cyan-500/30'
+            }`}
+          >
+            <div className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`}>
+              {isRefreshing ? '⟳' : '↻'}
+            </div>
+          </button>
+        </div>
+        <p className="text-cyan-300 font-mono text-sm">
+          Compete with the best miners in the cyberpunk realm
+        </p>
+      </div>
 
-  if (isLoading) {
-    return (
-      <div className="p-custom sm:p-4 flex flex-col h-full max-h-[calc(100vh-80px)] backdrop-blur-sm">
-        {/* User Stats Section Skeleton - Enhanced */}
-        <div className="mb-3 bg-gradient-to-r from-blue-900/40 to-purple-900/40 rounded-xl p-3 border border-white/10 shadow-md shadow-blue-900/10 relative overflow-hidden">
-          {/* Shimmer effect overlay */}
-          <div className="absolute inset-0 w-full h-full">
-            <div className="shimmer-effect"></div>
-          </div>
-          
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 relative z-10">
+      {/* User Stats Card */}
+      <div className="mb-6">
+        <div className="bg-gradient-to-r from-cyan-500/20 to-blue-600/20 border border-cyan-400 rounded-xl p-4">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-blue-500/20 to-purple-500/20 p-2 rounded-lg">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500/30 to-purple-500/30"></div>
+              <div className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-full flex items-center justify-center">
+                <span className="text-white font-bold">YOU</span>
               </div>
               <div>
-                <div className="h-4 w-28 bg-white/10 rounded mb-1"></div>
-                <div className="flex items-center gap-1.5">
-                  <div className="h-3 w-20 bg-white/10 rounded"></div>
-                  <span className="text-gray-500">•</span>
-                  <div className="h-3 w-24 bg-white/10 rounded"></div>
-                </div>
+                <div className="text-cyan-300 font-bold">Your Ranking</div>
+                <div className="text-2xl font-bold text-cyan-400">#{userRank}</div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="bg-black/30 rounded-lg p-2 border border-white/5">
-                <div className="flex flex-col items-center">
-                  <div className="h-2.5 w-24 bg-white/10 rounded mb-1"></div>
-                  <div className="h-4 w-20 bg-gradient-to-r from-green-400/20 to-green-300/10 rounded"></div>
-                </div>
-              </div>
-              <div className="bg-black/30 rounded-lg p-2 border border-white/5">
-                <div className="flex flex-col items-center">
-                  <div className="h-2.5 w-20 bg-white/10 rounded mb-1"></div>
-                  <div className="h-4 w-16 bg-gradient-to-r from-purple-400/20 to-purple-300/10 rounded"></div>
-                </div>
-              </div>
+            <div className="text-right">
+              <div className="text-cyan-300 text-sm">Total Players</div>
+              <div className="text-xl font-bold text-cyan-400">{formatNumber(leaderboardData.totalPlayers)}</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4 mt-4">
+            <div className="text-center">
+              <div className="text-yellow-400 font-bold">{formatNumber(userPoints)}</div>
+              <div className="text-gray-400 text-xs">Points</div>
+            </div>
+            <div className="text-center">
+              <div className="text-purple-400 font-bold">{formatNumber(userGems)}</div>
+              <div className="text-gray-400 text-xs">Gems</div>
+            </div>
+            <div className="text-center">
+              <div className="text-green-400 font-bold">Online</div>
+              <div className="text-gray-400 text-xs">Status</div>
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Leaderboard Section Skeleton - Enhanced */}
-        <div className="bg-black/40 rounded-xl overflow-hidden flex-1 flex flex-col border border-white/10 min-h-[400px] sm:min-h-[600px] shadow-lg shadow-blue-900/20 relative">
-          {/* Table Header Skeleton - Enhanced */}
-          <div className="bg-gradient-to-r from-blue-900/60 via-indigo-900/60 to-purple-900/60 px-2 sm:px-4 py-2 sm:py-2.5 border-b border-white/10 relative overflow-hidden">
-            {/* Shimmer effect overlay */}
-            <div className="absolute inset-0 w-full h-full">
-              <div className="shimmer-effect"></div>
+      {/* Navigation Tabs */}
+      <div className="flex justify-center gap-2 mb-6">
+        {[
+          { id: 'global', name: 'Global', icon: GiCrown },
+          { id: 'weekly', name: 'Weekly', icon: BiTrendingUp },
+          { id: 'monthly', name: 'Monthly', icon: BiTime },
+          { id: 'recent', name: 'Recent', icon: GiLightningArc }
+        ].map(({ id, name, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setCurrentTab(id as any)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-sm font-bold transition-all duration-300 ${
+              currentTab === id
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-[0_0_20px_rgba(0,255,255,0.3)]'
+                : 'bg-black/40 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20'
+            }`}
+          >
+            <Icon size={16} />
+            {name}
+          </button>
+        ))}
+      </div>
+
+      {/* Leaderboard */}
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+          {/* Header */}
+          <div className="grid grid-cols-12 gap-4 mb-4 p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
+            <div className="col-span-1 text-center">
+              <span className="text-cyan-400 font-bold text-sm">RANK</span>
             </div>
-            
-            <div className="flex justify-between items-center relative z-10">
-              <div className="flex items-center gap-2">
-                <div className="bg-gradient-to-br from-yellow-300/50 to-yellow-600/50 p-1.5 rounded-lg">
-                  <div className="w-3.5 h-3.5 sm:w-4 sm:h-4"></div>
-                </div>
-                <div className="h-4 w-36 bg-white/10 rounded"></div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-5 w-20 bg-blue-900/30 rounded-full"></div>
-                <div className="h-5 w-28 bg-black/30 rounded-full"></div>
-              </div>
+            <div className="col-span-3">
+              <span className="text-cyan-400 font-bold text-sm">PLAYER</span>
+            </div>
+            <div className="col-span-2 text-center">
+              <span className="text-cyan-400 font-bold text-sm">POINTS</span>
+            </div>
+            <div className="col-span-2 text-center">
+              <span className="text-cyan-400 font-bold text-sm">GEMS</span>
+            </div>
+            <div className="col-span-2 text-center">
+              <span className="text-cyan-400 font-bold text-sm">MINING RATE</span>
+            </div>
+            <div className="col-span-2 text-center">
+              <span className="text-cyan-400 font-bold text-sm">STATUS</span>
             </div>
           </div>
 
-          {/* Column Headers Skeleton - Enhanced */}
-          <div className="bg-black/60 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-white/5">
-            <div className="grid grid-cols-12 items-center">
-              <div className="col-span-2 sm:col-span-1 h-3 w-4 bg-white/10 rounded"></div>
-              <div className="col-span-6 sm:col-span-7 h-3 w-24 bg-white/10 rounded"></div>
-              <div className="col-span-4 flex justify-end">
-                <div className="h-3 w-16 bg-white/10 rounded"></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Table Body Skeleton - Enhanced with staggered animation */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 relative">
-            {/* Subtle gradient overlay for depth */}
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-900/5 to-transparent pointer-events-none"></div>
-            
-            {[...Array(15)].map((_, index) => (
-              <div 
-                key={index}
-                className={`grid grid-cols-12 px-2 sm:px-4 py-2 sm:py-2.5 ${
-                  index % 2 === 0 ? 'bg-white/[0.03]' : ''
-                } relative overflow-hidden`}
-                style={{ 
-                  animationDelay: `${index * 0.05}s`,
-                  opacity: 1 - (index * 0.05) // Fade out rows as they go down
-                }}
+          {/* Player Rows */}
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {getCurrentTabData().map((player, index) => (
+              <div
+                key={player.id}
+                className={`grid grid-cols-12 gap-4 p-3 rounded-lg transition-all duration-300 hover:bg-cyan-500/10 ${
+                  player.id === 'current_user' 
+                    ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 border border-cyan-400' 
+                    : 'bg-gray-800/30 border border-gray-700/30'
+                }`}
               >
-                {/* Conditional shimmer effect */}
-                {index < 5 && (
-                  <div className="absolute inset-0 w-full h-full">
-                    <div className="shimmer-effect" style={{ animationDelay: `${index * 0.1}s` }}></div>
+                {/* Rank */}
+                <div className="col-span-1 flex items-center justify-center">
+                  <div className={`flex items-center gap-1 ${player.rank <= 3 ? 'text-2xl' : 'text-lg'}`}>
+                    {getRankIcon(player.rank)}
+                    <span className="font-bold text-cyan-300">#{player.rank}</span>
                   </div>
-                )}
-                
-                <div className="col-span-2 sm:col-span-1 relative z-10">
-                  {index < 3 ? (
-                    <div className="w-5 h-5 bg-gradient-to-br from-yellow-500/30 to-amber-600/20 rounded-full flex items-center justify-center">
-                      <div className="w-3 h-3 bg-yellow-500/40 rounded-full"></div>
-                    </div>
-                  ) : (
-                    <div className="h-3 w-4 bg-white/10 rounded"></div>
-                  )}
                 </div>
-                <div className="col-span-6 sm:col-span-7 flex items-center gap-2 relative z-10">
-                  <div className="h-3.5 w-28 bg-white/10 rounded"></div>
-                  {index === 4 && (
-                    <div className="h-4 w-12 bg-gradient-to-r from-blue-500/30 to-blue-400/20 rounded-full"></div>
-                  )}
+
+                {/* Player Info */}
+                <div className="col-span-3 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center">
+                    <span className="text-white text-xs font-bold">{player.name.charAt(0)}</span>
+                  </div>
+                  <div>
+                    <div className="font-bold text-cyan-300 text-sm">{player.name}</div>
+                    <div className="text-xs text-gray-400">Level {player.level}</div>
+                    {player.achievements.length > 0 && (
+                      <div className="flex gap-1 mt-1">
+                        {player.achievements.slice(0, 2).map((achievement, idx) => (
+                          <div
+                            key={idx}
+                            className="w-2 h-2 bg-yellow-400 rounded-full cursor-help"
+                            title={achievement}
+                          />
+                        ))}
+                        {player.achievements.length > 2 && (
+                          <div className="text-xs text-gray-500">+{player.achievements.length - 2}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="col-span-4 flex justify-end relative z-10">
-                  <div className="h-3.5 w-20 bg-white/10 rounded"></div>
+
+                {/* Points */}
+                <div className="col-span-2 flex items-center justify-center">
+                  <div className="flex items-center gap-1">
+                    <GiCoins className="text-yellow-400" />
+                    <span className="font-bold text-yellow-400">{formatNumber(player.points)}</span>
+                  </div>
+                </div>
+
+                {/* Gems */}
+                <div className="col-span-2 flex items-center justify-center">
+                  <div className="flex items-center gap-1">
+                    <GiGems className="text-purple-400" />
+                    <span className="font-bold text-purple-400">{formatNumber(player.gems)}</span>
+                  </div>
+                </div>
+
+                {/* Mining Rate */}
+                <div className="col-span-2 flex items-center justify-center">
+                  <div className="flex items-center gap-1">
+                    <GiLightningArc className="text-green-400" />
+                    <span className="font-bold text-green-400">{player.miningRate}/s</span>
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div className="col-span-2 flex items-center justify-center">
+                  <div className="flex items-center gap-1">
+                    <div className={`w-2 h-2 rounded-full ${player.isOnline ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                    <span className={`text-xs font-bold ${player.isOnline ? 'text-green-400' : 'text-red-400'}`}>
+                      {player.isOnline ? 'ONLINE' : formatTimeAgo(player.lastActive)}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
+        </div>
 
-          {/* Footer Skeleton - Enhanced */}
-          <div className="bg-black/70 px-2 sm:px-4 py-1.5 sm:py-2 border-t border-white/5 flex justify-between items-center relative overflow-hidden">
-            {/* Shimmer effect overlay */}
-            <div className="absolute inset-0 w-full h-full">
-              <div className="shimmer-effect"></div>
-            </div>
-            
-            <div className="h-2.5 w-28 bg-white/10 rounded relative z-10"></div>
-            <div className="flex items-center gap-2 relative z-10">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-500/50"></div>
-              <div className="h-2.5 w-36 bg-white/10 rounded"></div>
-            </div>
+        {/* Stats Footer */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-cyan-400">{formatNumber(leaderboardData.totalPlayers)}</div>
+            <div className="text-gray-400 text-sm">Total Players</div>
           </div>
-        </div>
-        
-        {/* Add the shimmer effect CSS */}
-        <style>{`
-          @keyframes shimmer {
-            0% {
-              transform: translateX(-100%);
-            }
-            100% {
-              transform: translateX(100%);
-            }
-          }
-          
-          .shimmer-effect {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(
-              90deg,
-              rgba(255, 255, 255, 0) 0%,
-              rgba(255, 255, 255, 0.05) 50%,
-              rgba(255, 255, 255, 0) 100%
-            );
-            animation: shimmer 2s infinite;
-          }
-        `}</style>
-      </div>
-    );
-  }
-
-  const getPositionColor = (position: number) => {
-    switch (position) {
-      case 1: return 'text-yellow-400';
-      case 2: return 'text-gray-400';
-      case 3: return 'text-amber-600';
-      default: return 'text-white';
-    }
-  };
-
-  return (
-    <div className="p-custom sm:p-4 flex flex-col h-full max-h-[calc(100vh-80px)] backdrop-blur-sm">
-      {/* User Stats Section - Enhanced with total users */}
-      {user?.id && (
-        <div className="mb-3 bg-gradient-to-r from-blue-900/40 to-purple-900/40 rounded-xl p-3 border border-white/10 shadow-md shadow-blue-900/10">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-blue-500/20 to-purple-500/20 p-2 rounded-lg">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold">
-                  {user.username?.charAt(0).toUpperCase() || '?'}
-                </div>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-white">{user.username}</h3>
-                <div className="flex items-center gap-1.5">
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-gray-400">Rank:</span>
-                    <span className="text-xs font-semibold text-blue-400">#{userStats.position}</span>
-                  </div>
-                  <span className="text-gray-500">•</span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-gray-400">Pool Share:</span>
-                    <span className="text-xs font-semibold text-blue-400">{userStats.totalShares > 0 
-                      ? ((userStats.shares / userStats.totalShares) * 100).toFixed(2) 
-                      : '0.00'}%</span>
-                  </div>
-                </div>
-              </div>
+          <div className="bg-black/40 backdrop-blur-xl border border-purple-500/30 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-purple-400">
+              {formatNumber(getCurrentTabData().reduce((sum, p) => sum + p.points, 0))}
             </div>
-            <div className="flex items-center gap-2 text-xs text-gray-400">
-              <div className="bg-black/30 px-2 py-1 rounded-lg border border-white/5">
-                <span>Globals Users: </span>
-                <span className="font-semibold text-green-400">{poolStats.totalUsers?.toLocaleString() || '0'}</span>
-              </div>
-              <div className="bg-black/30 px-2 py-1 rounded-lg border border-white/5">
-                <span>Active Stakers: </span>
-                <span className="font-semibold text-purple-400">{poolStats.totalParticipants?.toLocaleString() || '0'}</span>
-              </div>
-            </div>
+            <div className="text-gray-400 text-sm">Total Points</div>
           </div>
-        </div>
-      )}
-
-      {/* Leaderboard Section - Enhanced design */}
-      <div className="bg-black/40 rounded-xl overflow-hidden flex-1 flex flex-col border border-white/10 min-h-[400px] sm:min-h-[600px] shadow-lg shadow-blue-900/20">
-        {/* Table Header with Info - Enhanced gradient */}
-        <div className="bg-gradient-to-r from-blue-900/60 via-indigo-900/60 to-purple-900/60 px-2 sm:px-4 py-2 sm:py-2.5 border-b border-white/10">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <div className="bg-gradient-to-br from-yellow-300 to-yellow-600 p-1.5 rounded-lg shadow-inner shadow-yellow-200/20">
-                <FaTrophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-100" />
-              </div>
-              <h3 className="text-xs sm:text-sm font-semibold text-white">Global Leaderboard</h3>
+          <div className="bg-black/40 backdrop-blur-xl border border-green-500/30 rounded-xl p-4 text-center">
+            <div className="text-2xl font-bold text-green-400">
+              {new Date(leaderboardData.lastUpdated).toLocaleTimeString()}
             </div>
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={handleManualRefresh}
-                disabled={isLoading}
-                className="text-[9px] sm:text-[10px] text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/40 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex items-center gap-1 transition-colors border border-blue-500/30"
-              >
-                <svg 
-                  className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} 
-                  fill="none" 
-                  stroke="currentColor" 
-                  viewBox="0 0 24 24" 
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Refresh
-              </button>
-              <div 
-                className={`text-[9px] sm:text-[10px] ${autoRefresh ? 'text-green-400' : 'text-gray-400'} bg-black/30 hover:bg-black/40 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex items-center gap-1 cursor-pointer transition-colors border border-white/10`}
-                onClick={() => setAutoRefresh(!autoRefresh)}
-              >
-                <div className={`w-2 h-2 rounded-full ${autoRefresh ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
-                {autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Enhanced Column Headers */}
-        <div className="bg-black/60 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-white/5">
-          <div className="grid grid-cols-12 items-center text-[10px] sm:text-[11px] font-medium text-gray-400 uppercase tracking-wider">
-            <div className="col-span-2 sm:col-span-1">#</div>
-            <div className="col-span-6 sm:col-span-7">Player</div>
-            <div className="col-span-4 text-right flex items-center justify-end gap-1">
-              STKN
-              <Tooltip content="Higher STKN balance = better rewards">
-                <FaInfoCircle className="text-blue-400/60 w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              </Tooltip>
-            </div>
-          </div>
-        </div>
-
-        {/* Enhanced Table Body - Better styling for rows */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10">
-          {entries.map((entry, index) => {
-            const showGapIndicator = index > 0 && entry.isGap;
-            const isCurrentUser = user?.username === entry.username;
-            
-            return (
-              <div key={`${entry.username}-${entry.position}`}>
-                {showGapIndicator && (
-                  <div className="px-2 sm:px-4 py-1 sm:py-1.5 text-[9px] sm:text-[10px] text-blue-400/70 text-center bg-blue-900/20 border-y border-blue-500/20">
-                    • • • Skipped Rankings • • •
-                  </div>
-                )}
-                <div 
-                  className={`group grid grid-cols-12 text-xs sm:text-sm px-2 sm:px-4 py-2 sm:py-2.5 ${
-                    isCurrentUser
-                      ? 'bg-gradient-to-r from-blue-600/30 to-purple-600/30 border-y border-white/10'
-                      : 'hover:bg-white/5'
-                  } ${index % 2 === 0 ? 'bg-white/[0.03]' : ''} transition-colors duration-200`}
-                >
-                  <div className={`col-span-2 sm:col-span-1 flex items-center ${getPositionColor(entry.position || 0)}`}>
-                    {entry.position && entry.position <= 3 ? (
-                      <div className="relative">
-                        <span className="text-base sm:text-lg">{['👑', '🥈', '🥉'][entry.position - 1]}</span>
-                        <div className="absolute -top-1 -right-1 w-1.5 h-1.5 bg-yellow-500 rounded-full animate-ping opacity-75" />
-                      </div>
-                    ) : (
-                      <span className="text-xs sm:text-sm font-medium">{entry.position || '-'}</span>
-                    )}
-                  </div>
-                  <div className="col-span-6 sm:col-span-7 flex items-center gap-1 sm:gap-2">
-                    <span className={`truncate font-medium ${isCurrentUser ? 'text-blue-400' : 'group-hover:text-blue-400'} transition-colors`}>
-                      {entry.username}
-                    </span>
-                    {isCurrentUser && (
-                      <span className="hidden sm:inline-block flex-shrink-0 text-[10px] bg-blue-500/30 border border-blue-500/50 px-1.5 py-0.5 rounded-full">
-                        YOU
-                      </span>
-                    )}
-                  </div>
-                  <div className="col-span-4 text-right pr-1">
-                    <span className={`font-medium ${isCurrentUser ? 'text-blue-300' : 'text-gray-300'}`}>
-                      {entry.total_sbt?.toLocaleString() || '0'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Enhanced Footer Info - Better styling */}
-        <div className="bg-black/70 px-2 sm:px-4 py-1.5 sm:py-2 text-[9px] sm:text-[10px] text-gray-500 border-t border-white/5">
-          <div className="flex justify-between items-center">
-            <span className="hidden sm:inline">Displaying up to 1000 players</span>
-            <span className="sm:hidden">Top 500</span>
-            <div className="flex items-center gap-2">
-              <div className={`w-1.5 h-1.5 rounded-full ${autoRefresh ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
-              <span className="hidden sm:inline">
-                Last updated: {lastRefreshed.toLocaleTimeString()} 
-                {autoRefresh && ` • Auto-refresh: ${Math.floor(refreshIntervalTime/1000)}s`}
-              </span>
-              <span className="sm:hidden">
-                {lastRefreshed.toLocaleTimeString()}
-                {autoRefresh && ` • ${Math.floor(refreshIntervalTime/1000)}s`}
-              </span>
-            </div>
+            <div className="text-gray-400 text-sm">Last Updated</div>
           </div>
         </div>
       </div>
     </div>
   );
 };
-
-// Helper function to get week number
-declare global {
-  interface Date {
-    getWeek(): number;
-  }
-}
-
-Date.prototype.getWeek = function(): number {
-  const d = new Date(Date.UTC(this.getFullYear(), this.getMonth(), this.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-};
-
-export default GMPLeaderboard;

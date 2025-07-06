@@ -1,5 +1,10 @@
 import { FC, useState, useEffect } from 'react';
-import { GiFrog, GiBasket, GiTrophy, GiCoins, } from 'react-icons/gi';
+import { 
+  HiOutlineSparkles, 
+  HiOutlineLightBulb, 
+  HiOutlineCube, 
+  HiOutlineCheckCircle 
+} from 'react-icons/hi';
 import { useAuth } from '@/hooks/useAuth';
 
 interface OnboardingStep {
@@ -17,28 +22,28 @@ export const OnboardingScreen: FC = () => {
 
   const steps: OnboardingStep[] = [
     {
-      icon: <GiFrog className="w-12 h-12 text-green-500" />,
-      title: "Welcome to CroakKingdom!",
-      description: "Join the most adorable mining adventure! Catch frogs, mine croaks, and build your digital pond empire. Every frog has unique mining powers!",
-      emoji: "🐸"
+      icon: <HiOutlineSparkles className="w-8 h-8 text-blue-400" />,
+      title: "Welcome to Divine Coin Resurrection",
+      description: "The Billion Coin is no more. The Divine Coin has risen. This is not just a rebrand. This is a spiritual rebirth. A reset. A higher calling.",
+      emoji: "✨"
     },
     {
-      icon: <GiBasket className="w-12 h-12 text-yellow-500" />,
-      title: "Harvest Your Croaks",
-      description: "Your frogs work tirelessly to mine croaks! Harvest them regularly to earn rewards. Higher rarity frogs mine faster and have special abilities.",
-      emoji: "🪙"
+      icon: <HiOutlineLightBulb className="w-8 h-8 text-blue-400" />,
+      title: "Our Resurrection Story",
+      description: "Many of us believed in The Billion Coin because it stood for hope, freedom, and abundance. But it lost its way. Now, a new team of spiritually-awakened builders is here to redeem the original vision.",
+      emoji: "💡"
     },
     {
-      icon: <GiTrophy className="w-12 h-12 text-purple-500" />,
-      title: "Level Up & Upgrade",
-      description: "Upgrade your frogs to increase their mining speed! Level up to unlock new abilities and earn more croaks. The stronger your frogs, the bigger your rewards!",
-      emoji: "⭐"
+      icon: <HiOutlineCube className="w-8 h-8 text-blue-400" />,
+      title: "What You Can Expect",
+      description: "Tap-to-Earn Light, Redemption Portal for past TBC holders, Daily Rituals & Quests, Soul DAO, and Real Value built on TON with NFTs, tokens, staking, and purpose.",
+      emoji: "🔮"
     },
     {
-      icon: <GiCoins className="w-12 h-12 text-blue-500" />,
-      title: "Earn & Trade",
-      description: "Convert your croaks to STK tokens, participate in token sales, and join our referral program. Build your web3 fortune in the most fun way possible!",
-      emoji: "💎"
+      icon: <HiOutlineCheckCircle className="w-8 h-8 text-blue-400" />,
+      title: "Ready to Begin?",
+      description: "You are not here by accident. You were chosen to rebuild wealth — the divine way. Welcome home to Divine Coin.",
+      emoji: "🌟"
     }
   ];
 
@@ -91,23 +96,23 @@ export const OnboardingScreen: FC = () => {
   if (!user || !shouldShow) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-green-900/95 via-blue-900/95 to-purple-900/95 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-black/95 via-gray-900/95 to-blue-900/95 backdrop-blur-sm">
       <div className="max-w-md w-full px-6">
         {loading ? (
           <div className="flex flex-col items-center">
-            {/* Frog-themed loading animation */}
+            {/* Professional loading animation */}
             <div className="relative">
               <div className="relative w-20 h-20">
-                <div className="absolute inset-0 bg-green-500/20 rounded-full blur-lg animate-pulse"></div>
+                <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-lg animate-pulse"></div>
                 <div className="relative w-full h-full flex items-center justify-center">
-                  <GiFrog size={48} className="text-green-500 animate-bounce" />
+                  <HiOutlineSparkles size={48} className="text-blue-500 animate-bounce" />
                 </div>
                 
-                {/* Orbiting lily pads */}
+                {/* Orbiting professional particles */}
                 {[...Array(4)].map((_, i) => (
                   <div
                     key={i}
-                    className="absolute w-3 h-3 bg-green-400 rounded-full animate-ping"
+                    className="absolute w-3 h-3 bg-blue-400 rounded-full animate-ping"
                     style={{
                       top: '50%',
                       left: '50%',
@@ -121,15 +126,15 @@ export const OnboardingScreen: FC = () => {
             </div>
             <div className="mt-8 text-center">
               <h2 className="text-2xl font-bold text-white mb-2">
-                {user?.total_deposit === 0 ? 'Welcome to CroakKingdom!' : 'Welcome Back!'}
+                {user?.total_deposit === 0 ? 'Welcome to Divine Coin Resurrection!' : 'Welcome Back!'}
               </h2>
-              <p className="text-green-300 text-lg">
+              <p className="text-blue-300 text-lg">
                 {user?.total_deposit === 0 
-                  ? '🐸 Hopping into your new pond...'
-                  : '🌿 Returning to your frog collection...'}
+                  ? '✨ Awakening your divine potential...'
+                  : '💡 Returning to your spiritual journey...'}
               </p>
-              <div className="mt-4 text-sm text-green-200 animate-pulse">
-                Preparing your mining adventure...
+              <div className="mt-4 text-sm text-blue-200 animate-pulse">
+                Preparing your divine resurrection...
               </div>
             </div>
           </div>
@@ -137,81 +142,80 @@ export const OnboardingScreen: FC = () => {
           <div className="relative">
             <button
               onClick={handleSkip}
-              className="absolute -top-12 right-0 text-sm text-green-300 hover:text-white transition-colors bg-green-800/50 px-3 py-1 rounded-lg hover:bg-green-700/50"
+              className="absolute -top-12 right-0 text-sm text-blue-300 hover:text-white transition-colors bg-gray-800/50 px-3 py-1 rounded-lg hover:bg-gray-700/50 border border-blue-600/30"
             >
               Skip Tutorial
             </button>
             
             <div key={currentStep} className="text-center animate-fade-in">
-              {/* Enhanced step display with frog theme */}
+              {/* Enhanced step display with professional theme */}
               <div className="relative mb-6">
-                <div className="flex items-center justify-center w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-green-500/20 via-blue-500/20 to-purple-500/20 border-4 border-green-400/30 shadow-lg">
-                  <div className="text-4xl mb-2">{steps[currentStep].emoji}</div>
-                  {steps[currentStep].icon}
+                <div className="flex items-center justify-center w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-blue-600/10 via-slate-600/10 to-slate-800/10 border border-blue-500/20 shadow-xl backdrop-blur-sm">
+                  <div className="text-4xl">{steps[currentStep].emoji}</div>
                 </div>
                 
-                {/* Floating particles */}
-                <div className="absolute -top-2 -right-2 w-4 h-4 bg-yellow-400 rounded-full animate-bounce"></div>
-                <div className="absolute -bottom-2 -left-2 w-3 h-3 bg-blue-400 rounded-full animate-ping"></div>
+                {/* Subtle accent elements */}
+                <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500/60 rounded-full"></div>
+                <div className="absolute -bottom-1 -left-1 w-1.5 h-1.5 bg-slate-400/40 rounded-full"></div>
               </div>
               
-              <h2 className="text-3xl font-bold text-white mt-6 mb-4 bg-gradient-to-r from-green-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">
+              <h2 className="text-2xl font-semibold text-white mt-6 mb-4">
                 {steps[currentStep].title}
               </h2>
-              <p className="text-lg text-green-200 mb-8 leading-relaxed">
+              <p className="text-base text-slate-300 mb-8 leading-relaxed">
                 {steps[currentStep].description}
               </p>
 
-              {/* Enhanced progress bar */}
-              <div className="w-full h-2 bg-green-800/50 rounded-full mb-8 overflow-hidden">
+              {/* Refined progress bar */}
+              <div className="w-full h-1.5 bg-slate-800/50 rounded-full mb-8 overflow-hidden border border-slate-700/30">
                 <div
-                  className="h-full bg-gradient-to-r from-green-400 via-blue-400 to-purple-400 rounded-full transition-all duration-500 ease-out shadow-lg"
+                  className="h-full bg-gradient-to-r from-blue-600 to-blue-500 rounded-full transition-all duration-500 ease-out"
                   style={{ width: `${((currentStep + 1) / steps.length) * 100}%` }}
                 />
               </div>
 
-              {/* Step indicators */}
+              {/* Cleaner step indicators */}
               <div className="flex justify-center gap-2 mb-6">
                 {steps.map((_, index) => (
                   <div
                     key={index}
-                    className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                    className={`w-2 h-2 rounded-full transition-all duration-300 ${
                       index === currentStep
-                        ? 'bg-green-400 scale-125'
+                        ? 'bg-blue-500'
                         : index < currentStep
-                        ? 'bg-green-600'
-                        : 'bg-green-800'
+                        ? 'bg-blue-600'
+                        : 'bg-slate-600'
                     }`}
                   />
                 ))}
               </div>
 
-              {/* Enhanced navigation buttons */}
+              {/* Professional navigation buttons */}
               <div className="flex items-center justify-between">
                 <button
                   onClick={handlePrev}
-                  className={`px-6 py-3 rounded-xl transition-all duration-200 transform hover:scale-105 ${
+                  className={`px-4 py-2 rounded-lg transition-all duration-200 ${
                     currentStep === 0
                       ? 'opacity-0 pointer-events-none'
-                      : 'text-green-300 hover:text-white bg-green-800/50 hover:bg-green-700/50 border border-green-600/50'
+                      : 'text-slate-300 hover:text-white bg-slate-800/50 hover:bg-slate-700/50 border border-slate-600/50'
                   }`}
                 >
-                  ← Previous
+                  Previous
                 </button>
 
                 {currentStep === steps.length - 1 ? (
                   <button
                     onClick={handleSkip}
-                    className="px-8 py-3 bg-gradient-to-r from-green-500 via-blue-500 to-purple-500 text-white rounded-xl hover:from-green-600 hover:via-blue-600 hover:to-purple-600 transition-all transform hover:scale-105 shadow-lg border-2 border-green-400 font-bold text-lg"
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-lg border border-blue-500/30 font-medium"
                   >
-                    🐸 Start Mining!
+                    Get Started
                   </button>
                 ) : (
                   <button
                     onClick={handleNext}
-                    className="px-8 py-3 bg-gradient-to-r from-green-500 via-blue-500 to-purple-500 text-white rounded-xl hover:from-green-600 hover:via-blue-600 hover:to-purple-600 transition-all transform hover:scale-105 shadow-lg border-2 border-green-400 font-bold text-lg"
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-lg border border-blue-500/30 font-medium"
                   >
-                    Next →
+                    Next
                   </button>
                 )}
               </div>

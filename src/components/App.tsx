@@ -2,6 +2,7 @@ import { useLaunchParams, miniApp, useSignal } from '@telegram-apps/sdk-react';
 import { AppRoot } from '@telegram-apps/telegram-ui';
 import { Navigate, Route, Routes, HashRouter } from 'react-router-dom';
 import { PriceProvider } from '@/contexts/PriceContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import { routes } from '@/navigation/routes.tsx';
 
 export function App() {
@@ -13,14 +14,16 @@ export function App() {
       appearance={isDark ? 'dark' : 'light'}
       platform={['macos', 'ios'].includes(lp.platform) ? 'ios' : 'base'}
     >
-       <PriceProvider>
-      <HashRouter>
-        <Routes>
-          {routes.map((route) => <Route key={route.path} {...route} />)}
-          <Route path="*" element={<Navigate to="/"/>}/>
-        </Routes>
-      </HashRouter>
-      </PriceProvider>
+      <ThemeProvider>
+        <PriceProvider>
+          <HashRouter>
+            <Routes>
+              {routes.map((route) => <Route key={route.path} {...route} />)}
+              <Route path="*" element={<Navigate to="/"/>}/>
+            </Routes>
+          </HashRouter>
+        </PriceProvider>
+      </ThemeProvider>
     </AppRoot>
   );
 }
