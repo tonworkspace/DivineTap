@@ -1,0 +1,178 @@
+/* TaskCenter Component Styles */
+
+/* Prevent layout shifts and glitching */
+.task-center-container {
+  animation: fadeIn 0.5s ease-in-out;
+  box-sizing: border-box;
+}
+
+.task-center-container * {
+  box-sizing: border-box;
+  transition: all 0.2s ease-in-out;
+}
+
+/* Prevent text selection during animations */
+.task-center-container {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Stable container heights */
+.task-center-container .space-y-2 > * {
+  min-height: 80px;
+}
+
+.task-item {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.task-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.1), transparent);
+  transition: left 0.5s ease;
+}
+
+.task-item:hover::before {
+  left: 100%;
+}
+
+.task-item.completed {
+  animation: taskCompleted 0.5s ease-in-out;
+}
+
+@keyframes taskCompleted {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.progress-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+.task-tab {
+  position: relative;
+  overflow: hidden;
+}
+
+.task-tab::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(45deg, transparent, rgba(0, 255, 255, 0.1), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+
+.task-tab:hover::before {
+  transform: translateX(100%);
+}
+
+.reward-modal {
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Task type specific colors */
+.task-mining {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.task-mining:hover {
+  border-color: rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.1);
+}
+
+.task-social {
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.task-social:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.1);
+}
+
+.task-airdrop {
+  border-color: rgba(147, 51, 234, 0.3);
+}
+
+.task-airdrop:hover {
+  border-color: rgba(147, 51, 234, 0.5);
+  box-shadow: 0 0 20px rgba(147, 51, 234, 0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .task-center-container {
+    padding: 0.5rem;
+  }
+  
+  .task-item {
+    padding: 0.75rem;
+  }
+  
+  .task-tab {
+    font-size: 0.75rem;
+    padding: 0.5rem;
+  }
+} 

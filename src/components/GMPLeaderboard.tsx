@@ -109,6 +109,37 @@ export const GMPLeaderboard: React.FC = () => {
   const [userRank, setUserRank] = useState<number | null>(null);
   const [showAchievements, setShowAchievements] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [miningStatus, setMiningStatus] = useState<{isMining: boolean, pointsPerSecond: number, currentEnergy: number, maxEnergy: number}>({
+    isMining: false, 
+    pointsPerSecond: 0, 
+    currentEnergy: 0, 
+    maxEnergy: 0
+  });
+
+  // Sync with DivineMiningGame status
+  useEffect(() => {
+    const syncMiningStatus = () => {
+      try {
+        const savedGameState = localStorage.getItem('divineMiningGame');
+        if (savedGameState) {
+          const gameState = JSON.parse(savedGameState);
+          setMiningStatus({
+            isMining: gameState.isMining || false,
+            pointsPerSecond: gameState.pointsPerSecond || 0,
+            currentEnergy: gameState.currentEnergy || 0,
+            maxEnergy: gameState.maxEnergy || 0
+          });
+        }
+      } catch (error) {
+        console.error('Error syncing mining status:', error);
+      }
+    };
+
+    syncMiningStatus();
+    const interval = setInterval(syncMiningStatus, 2000); // Check every 2 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Simulate loading data
@@ -179,13 +210,13 @@ export const GMPLeaderboard: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="w-full min-h-screen bg-gradient-to-br from-black via-gray-900 to-black p-4">
-        <div className="flex flex-col items-center justify-center space-y-6">
+      <div className="flex-1 p-custom space-y-2 overflow-y-auto game-scrollbar">
+        <div className="flex flex-col items-center justify-center space-y-4 py-8">
           <div className="relative">
-            <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
-            <div className="absolute inset-0 w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" style={{ animationDelay: '0.2s' }}></div>
+            <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="absolute inset-0 w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" style={{ animationDelay: '0.2s' }}></div>
           </div>
-          <div className="text-cyan-400 font-mono text-lg animate-pulse">
+          <div className="text-cyan-400 font-mono text-sm animate-pulse tracking-wider">
             LOADING LEADERBOARD...
           </div>
         </div>
@@ -194,14 +225,21 @@ export const GMPLeaderboard: React.FC = () => {
   }
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-br from-black via-gray-900 to-black p-4">
-      {/* Header */}
-      <div className="text-center mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div></div>
-          <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
-            🏆 GLOBAL RANKINGS 🏆
-          </h1>
+    <div className="flex-1 p-custom space-y-2 overflow-y-auto game-scrollbar">
+      {/* Compact Header */}
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-3 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+        <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
+        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
+        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
+        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
+        
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
+            <span className="text-cyan-400 font-mono font-bold tracking-wider text-sm">GLOBAL RANKINGS</span>
+            <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
+          </div>
+          
           <button
             onClick={refreshLeaderboard}
             disabled={isRefreshing}
@@ -211,53 +249,70 @@ export const GMPLeaderboard: React.FC = () => {
                 : 'bg-cyan-500/20 border border-cyan-400 text-cyan-300 hover:bg-cyan-500/30'
             }`}
           >
-            <div className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`}>
+            <div className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}>
               {isRefreshing ? '⟳' : '↻'}
             </div>
           </button>
         </div>
-        <p className="text-cyan-300 font-mono text-sm">
-          Compete with the best miners in the cyberpunk realm
-        </p>
+        
+        {/* Compact Mining Status */}
+        <div className="mt-2 flex items-center justify-center gap-3">
+          <div className={`w-2 h-2 rounded-full ${miningStatus.isMining ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`}></div>
+          <span className="text-cyan-300 font-mono text-xs tracking-wider">
+            {miningStatus.isMining ? 'MINING ACTIVE' : 'MINING INACTIVE'}
+          </span>
+          {miningStatus.isMining && (
+            <span className="text-green-400 font-mono text-xs">
+              +{miningStatus.pointsPerSecond.toFixed(1)}/sec
+            </span>
+          )}
+          <span className="text-blue-400 font-mono text-xs">
+            ⚡ {miningStatus.currentEnergy.toFixed(0)}/{miningStatus.maxEnergy.toFixed(0)}
+          </span>
+        </div>
       </div>
 
-      {/* User Stats Card */}
-      <div className="mb-6">
-        <div className="bg-gradient-to-r from-cyan-500/20 to-blue-600/20 border border-cyan-400 rounded-xl p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold">YOU</span>
-              </div>
-              <div>
-                <div className="text-cyan-300 font-bold">Your Ranking</div>
-                <div className="text-2xl font-bold text-cyan-400">#{userRank}</div>
-              </div>
+      {/* Compact User Stats */}
+      <div className="flex gap-2 mb-3">
+        <div className="flex-1 relative bg-black/40 backdrop-blur-xl border border-cyan-400/30 rounded-xl p-3 shadow-[0_0_20px_rgba(0,255,255,0.1)]">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-lg flex items-center justify-center">
+              <span className="text-white text-xs font-bold">YOU</span>
             </div>
-            <div className="text-right">
-              <div className="text-cyan-300 text-sm">Total Players</div>
-              <div className="text-xl font-bold text-cyan-400">{formatNumber(leaderboardData.totalPlayers)}</div>
+            <div>
+              <div className="text-cyan-400 font-mono font-bold text-sm tracking-wider">#{userRank}</div>
+              <div className="text-cyan-300 text-xs font-mono uppercase tracking-wider">Rank</div>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4 mt-4">
-            <div className="text-center">
-              <div className="text-yellow-400 font-bold">{formatNumber(userPoints)}</div>
-              <div className="text-gray-400 text-xs">Points</div>
+        </div>
+
+        <div className="flex-1 relative bg-black/40 backdrop-blur-xl border border-yellow-400/30 rounded-xl p-3 shadow-[0_0_20px_rgba(251,191,36,0.1)]">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-lg flex items-center justify-center">
+              <GiCoins className="text-white text-xs" />
             </div>
-            <div className="text-center">
-              <div className="text-purple-400 font-bold">{formatNumber(userGems)}</div>
-              <div className="text-gray-400 text-xs">Gems</div>
+            <div>
+              <div className="text-yellow-400 font-mono font-bold text-sm tracking-wider">{formatNumber(userPoints)}</div>
+              <div className="text-yellow-300 text-xs font-mono uppercase tracking-wider">Points</div>
             </div>
-            <div className="text-center">
-              <div className="text-green-400 font-bold">Online</div>
-              <div className="text-gray-400 text-xs">Status</div>
+          </div>
+        </div>
+
+        <div className="flex-1 relative bg-black/40 backdrop-blur-xl border border-purple-400/30 rounded-xl p-3 shadow-[0_0_20px_rgba(147,51,234,0.1)]">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+              <GiGems className="text-white text-xs" />
+            </div>
+            <div>
+              <div className="text-purple-400 font-mono font-bold text-sm tracking-wider">{formatNumber(userGems)}</div>
+              <div className="text-purple-300 text-xs font-mono uppercase tracking-wider">Gems</div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex justify-center gap-2 mb-6">
+      {/* Compact Navigation Tabs */}
+      <div className="flex gap-1 mb-3">
         {[
           { id: 'global', name: 'Global', icon: GiCrown },
           { id: 'weekly', name: 'Weekly', icon: BiTrendingUp },
@@ -267,49 +322,44 @@ export const GMPLeaderboard: React.FC = () => {
           <button
             key={id}
             onClick={() => setCurrentTab(id as any)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-sm font-bold transition-all duration-300 ${
+            className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-lg font-mono text-xs font-bold tracking-wider transition-all duration-300 ${
               currentTab === id
                 ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-[0_0_20px_rgba(0,255,255,0.3)]'
                 : 'bg-black/40 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20'
             }`}
           >
-            <Icon size={16} />
+            <Icon size={12} />
             {name}
           </button>
         ))}
       </div>
 
-      {/* Leaderboard */}
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
-          {/* Header */}
-          <div className="grid grid-cols-12 gap-4 mb-4 p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
-            <div className="col-span-1 text-center">
-              <span className="text-cyan-400 font-bold text-sm">RANK</span>
-            </div>
-            <div className="col-span-3">
-              <span className="text-cyan-400 font-bold text-sm">PLAYER</span>
-            </div>
-            <div className="col-span-2 text-center">
-              <span className="text-cyan-400 font-bold text-sm">POINTS</span>
-            </div>
-            <div className="col-span-2 text-center">
-              <span className="text-cyan-400 font-bold text-sm">GEMS</span>
-            </div>
-            <div className="col-span-2 text-center">
-              <span className="text-cyan-400 font-bold text-sm">MINING RATE</span>
-            </div>
-            <div className="col-span-2 text-center">
-              <span className="text-cyan-400 font-bold text-sm">STATUS</span>
-            </div>
+      {/* Compact Leaderboard */}
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-3 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+        <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
+        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
+        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
+        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
+        
+        {/* Simple Header */}
+        <div className="grid grid-cols-4 gap-2 mb-2 p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
+          <div className="col-span-1 text-center">
+            <span className="text-cyan-400 font-mono font-bold text-xs tracking-wider">RANK</span>
           </div>
+          <div className="col-span-2">
+            <span className="text-cyan-400 font-mono font-bold text-xs tracking-wider">PLAYER</span>
+          </div>
+          <div className="col-span-1 text-center">
+            <span className="text-cyan-400 font-mono font-bold text-xs tracking-wider">POINTS</span>
+          </div>
+        </div>
 
-          {/* Player Rows */}
-          <div className="space-y-2 max-h-96 overflow-y-auto">
+          {/* Simple Player Rows */}
+          <div className="space-y-1 max-h-80 overflow-y-auto">
             {getCurrentTabData().map((player, index) => (
               <div
                 key={player.id}
-                className={`grid grid-cols-12 gap-4 p-3 rounded-lg transition-all duration-300 hover:bg-cyan-500/10 ${
+                className={`grid grid-cols-4 gap-2 p-2 rounded-lg transition-all duration-300 hover:bg-cyan-500/10 ${
                   player.id === 'current_user' 
                     ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 border border-cyan-400' 
                     : 'bg-gray-800/30 border border-gray-700/30'
@@ -317,68 +367,28 @@ export const GMPLeaderboard: React.FC = () => {
               >
                 {/* Rank */}
                 <div className="col-span-1 flex items-center justify-center">
-                  <div className={`flex items-center gap-1 ${player.rank <= 3 ? 'text-2xl' : 'text-lg'}`}>
+                  <div className="flex items-center gap-1">
                     {getRankIcon(player.rank)}
-                    <span className="font-bold text-cyan-300">#{player.rank}</span>
+                    <span className="font-mono font-bold text-cyan-300 text-xs">#{player.rank}</span>
                   </div>
                 </div>
 
                 {/* Player Info */}
-                <div className="col-span-3 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center">
+                <div className="col-span-2 flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center">
                     <span className="text-white text-xs font-bold">{player.name.charAt(0)}</span>
                   </div>
                   <div>
-                    <div className="font-bold text-cyan-300 text-sm">{player.name}</div>
-                    <div className="text-xs text-gray-400">Level {player.level}</div>
-                    {player.achievements.length > 0 && (
-                      <div className="flex gap-1 mt-1">
-                        {player.achievements.slice(0, 2).map((achievement, idx) => (
-                          <div
-                            key={idx}
-                            className="w-2 h-2 bg-yellow-400 rounded-full cursor-help"
-                            title={achievement}
-                          />
-                        ))}
-                        {player.achievements.length > 2 && (
-                          <div className="text-xs text-gray-500">+{player.achievements.length - 2}</div>
-                        )}
-                      </div>
-                    )}
+                    <div className="font-mono font-bold text-cyan-300 text-xs tracking-wider">{player.name}</div>
+                    <div className="text-xs text-gray-400">Lv.{player.level}</div>
                   </div>
                 </div>
 
                 {/* Points */}
-                <div className="col-span-2 flex items-center justify-center">
+                <div className="col-span-1 flex items-center justify-center">
                   <div className="flex items-center gap-1">
-                    <GiCoins className="text-yellow-400" />
-                    <span className="font-bold text-yellow-400">{formatNumber(player.points)}</span>
-                  </div>
-                </div>
-
-                {/* Gems */}
-                <div className="col-span-2 flex items-center justify-center">
-                  <div className="flex items-center gap-1">
-                    <GiGems className="text-purple-400" />
-                    <span className="font-bold text-purple-400">{formatNumber(player.gems)}</span>
-                  </div>
-                </div>
-
-                {/* Mining Rate */}
-                <div className="col-span-2 flex items-center justify-center">
-                  <div className="flex items-center gap-1">
-                    <GiLightningArc className="text-green-400" />
-                    <span className="font-bold text-green-400">{player.miningRate}/s</span>
-                  </div>
-                </div>
-
-                {/* Status */}
-                <div className="col-span-2 flex items-center justify-center">
-                  <div className="flex items-center gap-1">
-                    <div className={`w-2 h-2 rounded-full ${player.isOnline ? 'bg-green-400' : 'bg-red-400'}`}></div>
-                    <span className={`text-xs font-bold ${player.isOnline ? 'text-green-400' : 'text-red-400'}`}>
-                      {player.isOnline ? 'ONLINE' : formatTimeAgo(player.lastActive)}
-                    </span>
+                    <GiCoins className="text-yellow-400 text-xs" />
+                    <span className="font-mono font-bold text-yellow-400 text-xs">{formatNumber(player.points)}</span>
                   </div>
                 </div>
               </div>
@@ -386,26 +396,25 @@ export const GMPLeaderboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Stats Footer */}
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-cyan-400">{formatNumber(leaderboardData.totalPlayers)}</div>
-            <div className="text-gray-400 text-sm">Total Players</div>
+        {/* Compact Stats Footer */}
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-lg p-2 text-center">
+            <div className="text-cyan-400 font-mono font-bold text-sm tracking-wider">{formatNumber(leaderboardData.totalPlayers)}</div>
+            <div className="text-gray-400 text-xs font-mono uppercase tracking-wider">Players</div>
           </div>
-          <div className="bg-black/40 backdrop-blur-xl border border-purple-500/30 rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-purple-400">
+          <div className="bg-black/40 backdrop-blur-xl border border-purple-500/30 rounded-lg p-2 text-center">
+            <div className="text-purple-400 font-mono font-bold text-sm tracking-wider">
               {formatNumber(getCurrentTabData().reduce((sum, p) => sum + p.points, 0))}
             </div>
-            <div className="text-gray-400 text-sm">Total Points</div>
+            <div className="text-gray-400 text-xs font-mono uppercase tracking-wider">Points</div>
           </div>
-          <div className="bg-black/40 backdrop-blur-xl border border-green-500/30 rounded-xl p-4 text-center">
-            <div className="text-2xl font-bold text-green-400">
+          <div className="bg-black/40 backdrop-blur-xl border border-green-500/30 rounded-lg p-2 text-center">
+            <div className="text-green-400 font-mono font-bold text-sm tracking-wider">
               {new Date(leaderboardData.lastUpdated).toLocaleTimeString()}
             </div>
-            <div className="text-gray-400 text-sm">Last Updated</div>
+            <div className="text-gray-400 text-xs font-mono uppercase tracking-wider">Updated</div>
           </div>
         </div>
-      </div>
     </div>
   );
 };

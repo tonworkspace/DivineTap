@@ -7,6 +7,8 @@ import { OnboardingScreen } from './OnboardingScreen';
 import { DivineMiningGame } from '@/components/DivineMiningGame';
 import { DailyRewards } from '@/components/DailyRewards';
 import { GMPLeaderboard } from '@/components/GMPLeaderboard';
+import { TaskCenter } from '@/components/TaskCenter';
+import { ReferralSystem } from '@/components/ReferralSystem';
 import { useTonAddress } from '@tonconnect/ui-react';
 import { isValidAddress } from '@/utility/address';
 import { Address } from '@ton/core';
@@ -397,9 +399,62 @@ export const IndexPage: FC = () => {
       <div className="relative z-10">
         {!isLoading && user && <OnboardingScreen />}
 
-
         {/* Futuristic Main Content Area */}
-        <div className="flex-1 pb-20">
+        <div className="flex-1 pb-10">
+          {/* Shared Stats Header - Shows across all tabs */}
+          <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-3 mb-0 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+            {/* Futuristic Corner Accents */}
+            <div className="absolute top-0 left-0 w-2 h-2 border-l-2 border-t-2 border-cyan-400"></div>
+            <div className="absolute top-0 right-0 w-2 h-2 border-r-2 border-t-2 border-cyan-400"></div>
+            <div className="absolute bottom-0 left-0 w-2 h-2 border-l-2 border-b-2 border-cyan-400"></div>
+            <div className="absolute bottom-0 right-0 w-2 h-2 border-r-2 border-b-2 border-cyan-400"></div>
+            
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
+                  <span className="text-cyan-400 font-mono font-bold">STATUS</span>
+                </div>
+                <div className="text-cyan-300 font-mono">
+                  {currentTab === 'zodiac' ? 'MINING ACTIVE' : 'SYSTEM ONLINE'}
+                </div>
+              </div>
+              
+              <div className="flex items-center space-x-4">
+                {/* <div className="text-center">
+                  <div className="text-cyan-300 font-mono font-bold">
+                    {(() => {
+                      // Get points from localStorage since DivineMiningGame manages them
+                      const savedPoints = localStorage.getItem('divineMiningPoints');
+                      return savedPoints ? parseInt(savedPoints, 10).toLocaleString() : '0';
+                    })()}
+                  </div>
+                  <div className="text-gray-400 font-mono text-[10px] tracking-wide">POINTS</div>
+                </div>
+                 */}
+                <div className="text-center">
+                  <div className="text-purple-300 font-mono font-bold">
+                    {(() => {
+                      const savedGems = localStorage.getItem('divineMiningGems');
+                      return savedGems ? parseInt(savedGems, 10).toString() : '0';
+                    })()}
+                  </div>
+                  <div className="text-gray-400 font-mono text-[10px]">GEMS</div>
+                </div>
+                
+                <div className="text-center">
+                  <div className="text-green-300 font-mono font-bold">
+                    {(() => {
+                      const savedHighScore = localStorage.getItem('divineMiningHighScore');
+                      return savedHighScore ? parseInt(savedHighScore, 10).toLocaleString() : '0';
+                    })()}
+                  </div>
+                  <div className="text-gray-400 font-mono text-[10px]">HIGH SCORE</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {currentTab === 'daily' && <DailyRewards />}
 
           {currentTab === 'zodiac' && <DivineMiningGame />}
@@ -407,44 +462,14 @@ export const IndexPage: FC = () => {
           {currentTab === 'tarot' && <GMPLeaderboard />}
 
           {currentTab === 'crystals' && (
-            <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-              {/* Futuristic Content Container */}
-              <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
-                {/* Futuristic Corner Accents */}
-                <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
-                <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
-                <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
-                <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
-                
-                <div className="text-cyan-300 font-mono text-sm">
-                  <div className="flex items-center space-x-2 mb-3">
-                    <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-                    <span className="text-cyan-400 font-bold tracking-wider">TASK CENTER: OPERATIONAL</span>
-                  </div>
-                  <p className="text-gray-300">Mission protocols loaded...</p>
-                </div>
-              </div>
+            <div className="flex-1 overflow-y-auto">
+              <TaskCenter />
             </div>
           )}
 
           {currentTab === 'spells' && (
             <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-              {/* Futuristic Content Container */}
-              <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
-                {/* Futuristic Corner Accents */}
-                <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
-                <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
-                <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
-                <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
-                
-                <div className="text-cyan-300 font-mono text-sm">
-                  <div className="flex items-center space-x-2 mb-3">
-                    <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-                    <span className="text-cyan-400 font-bold tracking-wider">SOCIAL NETWORK: CONNECTED</span>
-                  </div>
-                  <p className="text-gray-300">Friend system synchronization...</p>
-                </div>
-              </div>
+              <ReferralSystem />
             </div>
           )}
 

@@ -28,7 +28,10 @@ interface GameProviderProps {
 
 export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   // Points are now managed by DivineMiningGame - this is just for display
-  const [points, setPoints] = useState(100);
+  const [points, setPoints] = useState(() => {
+    const saved = localStorage.getItem('divineMiningPoints');
+    return saved ? parseInt(saved, 10) : 100;
+  });
 
   const [gems, setGems] = useState(() => {
     const saved = localStorage.getItem('divineMiningGems');
@@ -39,6 +42,60 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     const saved = localStorage.getItem('divineMiningBoosts');
     return saved ? JSON.parse(saved) : [];
   });
+
+  // Real-time sync with DivineMiningGame localStorage
+  useEffect(() => {
+    const syncWithDivineMining = () => {
+      const savedPoints = localStorage.getItem('divineMiningPoints');
+      const savedGems = localStorage.getItem('divineMiningGems');
+      const savedBoosts = localStorage.getItem('divineMiningBoosts');
+      
+      if (savedPoints) {
+        const newPoints = parseInt(savedPoints, 10);
+        if (newPoints !== points) {
+          setPoints(newPoints);
+        }
+      }
+      
+      if (savedGems) {
+        const newGems = parseInt(savedGems, 10);
+        if (newGems !== gems) {
+          setGems(newGems);
+        }
+      }
+      
+      if (savedBoosts) {
+        try {
+          const newBoosts = JSON.parse(savedBoosts);
+          if (JSON.stringify(newBoosts) !== JSON.stringify(activeBoosts)) {
+            setActiveBoosts(newBoosts);
+          }
+        } catch (error) {
+          console.error('Error parsing boosts:', error);
+        }
+      }
+    };
+
+    // Sync immediately
+    syncWithDivineMining();
+
+    // Set up interval for real-time sync
+    const syncInterval = setInterval(syncWithDivineMining, 1000); // Sync every second
+
+    // Also listen for storage events (when localStorage changes in other tabs)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'divineMiningPoints' || e.key === 'divineMiningGems' || e.key === 'divineMiningBoosts') {
+        syncWithDivineMining();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      clearInterval(syncInterval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [points, gems, activeBoosts]);
 
   // Save gems to localStorage whenever state changes
   useEffect(() => {

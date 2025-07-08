@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGameContext } from '@/contexts/GameContext';
+import { useNotificationSystem } from './NotificationSystem';
 
 interface Upgrade {
   id: string;
@@ -32,6 +33,8 @@ interface GameState {
   lastEnergyRegen: number;
   offlineEfficiencyBonus: number; // New: Bonus for offline mining
   lastOfflineTime: number; // New: Track last offline time
+  unclaimedOfflineRewards: number; // New: Track unclaimed offline rewards
+  lastOfflineRewardTime: number; // New: Track when offline rewards were last calculated
 }
 
 interface Achievement {
@@ -43,6 +46,28 @@ interface Achievement {
   unlockedAt?: number;
 }
 
+// Tutorial System Interfaces
+interface TutorialStep {
+  id: string;
+  title: string;
+  description: string;
+  target: string; // CSS selector or element ID
+  position: 'top' | 'bottom' | 'left' | 'right' | 'center';
+  action?: 'click' | 'hover' | 'wait' | 'info';
+  condition?: (state: GameState) => boolean;
+  completed?: boolean;
+  skipIf?: (state: GameState) => boolean;
+}
+
+interface TutorialState {
+  isActive: boolean;
+  currentStep: number;
+  steps: TutorialStep[];
+  isCompleted: boolean;
+  showTutorial: boolean;
+  highlightElement: string | null;
+}
+
 const GAME_VERSION = '1.1.0'; // Updated version
 const SAVE_KEY = 'divineMiningGame';
 const BACKUP_KEY = 'divineMiningGame_backup';
@@ -50,18 +75,105 @@ const HIGH_SCORE_KEY = 'divineMiningHighScore';
 const DIVINE_POINTS_KEY = 'divineMiningPoints';
 const TOTAL_EARNED_KEY = 'divineMiningTotalEarned'; // New: Separate key for total earned
 const SESSION_KEY = 'divineMiningSession'; // New: Separate key for session data
+const TUTORIAL_KEY = 'divineMiningTutorial'; // New: Tutorial progress key
 const AUTO_SAVE_INTERVAL = 30000; // 30 seconds
 const BACKUP_INTERVAL = 300000; // 5 minutes
 const OFFLINE_EFFICIENCY_CAP = 14; // 14 days max offline earnings
 const OFFLINE_EFFICIENCY_BONUS = 0.1; // 10% bonus per day offline (max 140%)
 
+// Enhanced Notification System Interfaces
+interface Notification {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info' | 'achievement' | 'milestone' | 'offline' | 'energy' | 'upgrade' | 'system' | 'progress' | 'reward' | 'prestige' | 'tutorial';
+  title: string;
+  message: string;
+  description?: string;
+  icon?: string;
+  duration?: number;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  actions?: NotificationAction[];
+  timestamp: number;
+  read: boolean;
+  dismissed: boolean;
+  position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center' | 'center' | 'smart';
+  animation?: 'slide-in' | 'fade-in' | 'bounce-in' | 'scale-in' | 'slide-up' | 'slide-down' | 'zoom-in' | 'flip-in';
+  sound?: boolean;
+  vibration?: boolean;
+  autoDismiss?: boolean;
+  persistent?: boolean;
+  category?: string;
+  metadata?: Record<string, any>;
+  progress?: {
+    current: number;
+    max: number;
+    label?: string;
+    color?: string;
+  };
+  stackable?: boolean;
+  groupId?: string;
+  expiresAt?: number;
+}
+
+interface NotificationAction {
+  label: string;
+  action: () => void;
+  type: 'primary' | 'secondary' | 'danger' | 'success' | 'warning';
+  icon?: string;
+  disabled?: boolean;
+  loading?: boolean;
+}
+
+interface NotificationQueue {
+  notifications: Notification[];
+  maxNotifications: number;
+  maxDuration: number;
+  history: Notification[];
+  maxHistory: number;
+}
+
+interface NotificationPreferences {
+  soundEnabled: boolean;
+  vibrationEnabled: boolean;
+  autoDismiss: boolean;
+  position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center' | 'smart';
+  maxNotifications: number;
+  showNotifications: boolean;
+  categories: {
+    achievement: boolean;
+    milestone: boolean;
+    system: boolean;
+    energy: boolean;
+    upgrade: boolean;
+    offline: boolean;
+    progress: boolean;
+    tutorial: boolean;
+  };
+  animationSpeed: 'slow' | 'normal' | 'fast';
+  theme: 'dark' | 'light' | 'auto';
+}
+
 export const DivineMiningGame: React.FC = () => {
   const { setPoints, addPoints, gems: userGems, activeBoosts } = useGameContext();
+  const {
+    showAchievementNotification,
+    showMilestoneNotification,
+    showEnergyWarningNotification,
+    showUpgradeNotification,
+    showSystemNotification,
+    showOfflineRewardsNotification,
+    showProgressNotification,
+    showRewardNotification,
+    showPrestigeNotification,
+    showTutorialNotification
+  } = useNotificationSystem();
+  
   const [showHelp, setShowHelp] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [lastSaveStatus, setLastSaveStatus] = useState<'success' | 'error' | 'pending'>('pending');
   const [saveMessage, setSaveMessage] = useState('');
   const [miningResumed, setMiningResumed] = useState(false);
+  const [showOfflineRewards, setShowOfflineRewards] = useState(false);
+  const [offlineRewardNotification, setOfflineRewardNotification] = useState('');
   const autoSaveRef = useRef<NodeJS.Timeout>();
   const backupRef = useRef<NodeJS.Timeout>();
   const miningIntervalRef = useRef<NodeJS.Timeout>();
@@ -219,6 +331,83 @@ export const DivineMiningGame: React.FC = () => {
         return resonanceUpgrades.some(u => u.level >= 5);
       },
       unlocked: false
+    },
+    {
+      id: 'offline-collector',
+      name: 'Offline Collector',
+      description: 'Claim offline rewards for the first time',
+      condition: (state) => state.totalPointsEarned > 0 && state.unclaimedOfflineRewards === 0,
+      unlocked: false
+    },
+    {
+      id: 'reward-master',
+      name: 'Reward Master',
+      description: 'Claim 100,000 total offline rewards',
+      condition: (state) => {
+        // This would need to be tracked separately, but for now we'll use a simple check
+        return state.totalPointsEarned >= 100000;
+      },
+      unlocked: false
+    },
+    {
+      id: 'energy-conservationist',
+      name: 'Energy Conservationist',
+      description: 'Reduce energy cost by 60%',
+      condition: (state) => {
+        const efficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+        const sustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+        const masteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+        const totalEfficiency = efficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const totalSustain = sustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const totalMastery = masteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        return (totalEfficiency + totalSustain + totalMastery) <= -0.6;
+      },
+      unlocked: false
+    },
+    {
+      id: 'energy-titan',
+      name: 'Energy Titan',
+      description: 'Reach 50,000 max energy',
+      condition: (state) => state.maxEnergy >= 50000,
+      unlocked: false
+    },
+    {
+      id: 'regeneration-master',
+      name: 'Regeneration Master',
+      description: 'Reach 10 energy per second regeneration',
+      condition: (state) => {
+        const regenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
+        const burstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
+        const totalRegen = regenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const totalBurst = burstUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        return (0.3 + totalRegen + totalBurst) >= 10;
+      },
+      unlocked: false
+    },
+    {
+      id: 'energy-efficiency-god',
+      name: 'Energy Efficiency God',
+      description: 'Reduce energy cost by 90%',
+      condition: (state) => {
+        const efficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+        const sustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+        const masteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+        const totalEfficiency = efficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const totalSustain = sustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const totalMastery = masteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        return (totalEfficiency + totalSustain + totalMastery) <= -0.9;
+      },
+      unlocked: false
+    },
+    {
+      id: 'auto-miner-master',
+      name: 'Auto-Miner Master',
+      description: 'Purchase Auto Mining upgrade',
+      condition: (state) => {
+        const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
+        return autoMiningUpgrades.some(u => u.level > 0);
+      },
+      unlocked: false
     }
   ]);
 
@@ -274,7 +463,9 @@ export const DivineMiningGame: React.FC = () => {
       maxEnergy: 1000,
       lastEnergyRegen: Date.now(),
       offlineEfficiencyBonus: 0, // New: Bonus for offline mining
-      lastOfflineTime: Date.now() // New: Track last offline time
+      lastOfflineTime: Date.now(), // New: Track last offline time
+      unclaimedOfflineRewards: 0, // New: Track unclaimed offline rewards
+      lastOfflineRewardTime: Date.now() // New: Track when offline rewards were last calculated
     };
 
     try {
@@ -302,6 +493,7 @@ export const DivineMiningGame: React.FC = () => {
           let offlineEarnings = 0;
           let offlineEnergyRegen = 0;
           let offlineEfficiencyBonus = 0;
+          let unclaimedRewards = 0;
           
           if (parsed.isMining && timeDiff > 0 && timeDiff < OFFLINE_EFFICIENCY_CAP * 24 * 60 * 60 * 1000) { // Max 14 days
             // Calculate base offline earnings
@@ -316,31 +508,38 @@ export const DivineMiningGame: React.FC = () => {
             
             // Calculate energy regeneration during offline time
             const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
+            const energyBurstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
             const regenBonus = energyRegenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-            const baseRegen = 0.5; // Base regen per second
-            const totalRegen = baseRegen + regenBonus;
+            const burstBonus = energyBurstUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+            const baseRegen = 0.3; // Reduced base regen for better balance
+            const totalRegen = baseRegen + regenBonus + burstBonus;
             offlineEnergyRegen = totalRegen * (timeDiff / 1000);
+            
+            // Add to unclaimed rewards instead of immediately adding to points
+            unclaimedRewards = parsed.unclaimedOfflineRewards || 0;
+            unclaimedRewards += offlineEarnings;
             
             console.log(`Offline earnings: ${offlineEarnings.toFixed(2)} points (${baseOfflineEarnings.toFixed(2)} base + ${(offlineEfficiencyBonus * 100).toFixed(1)}% bonus) over ${Math.floor(timeDiff / 1000 / 60)} minutes`);
             console.log(`Offline energy regen: ${offlineEnergyRegen.toFixed(2)} energy`);
+            console.log(`Total unclaimed rewards: ${unclaimedRewards.toFixed(2)} points`);
             
             // Set mining resumed flag
             setMiningResumed(true);
             
-            // Show offline earnings notification
-            setTimeout(() => {
+            // Show offline rewards notification
+            if (offlineEarnings > 0) {
               const bonusText = offlineEfficiencyBonus > 0 ? ` (+${(offlineEfficiencyBonus * 100).toFixed(1)}% offline bonus)` : '';
-              setSaveMessage(`Welcome back! You earned ${Math.floor(offlineEarnings)} points while away!${bonusText}`);
-              setTimeout(() => setSaveMessage(''), 5000);
-            }, 1000);
+              setOfflineRewardNotification(`🎁 You have ${Math.floor(unclaimedRewards)} unclaimed offline rewards!${bonusText}`);
+              setShowOfflineRewards(true);
+            }
           }
           
           const loadedState = {
             ...parsed,
-            divinePoints: parsed.divinePoints + offlineEarnings,
+            divinePoints: parsed.divinePoints, // Don't add offline earnings immediately
             lastSaveTime: now,
             sessionStartTime: parsed.sessionStartTime || sessionStartTime,
-            totalPointsEarned: Math.max(parsed.totalPointsEarned || 0, savedTotalEarned) + offlineEarnings,
+            totalPointsEarned: Math.max(parsed.totalPointsEarned || 0, savedTotalEarned), // Don't add offline earnings to total yet
             version: GAME_VERSION,
             highScore: Math.max(parsed.highScore || 100, allTimeHighScore),
             allTimeHighScore: Math.max(parsed.allTimeHighScore || 100, allTimeHighScore),
@@ -348,7 +547,9 @@ export const DivineMiningGame: React.FC = () => {
             offlineEfficiencyBonus: parsed.offlineEfficiencyBonus || 0,
             lastOfflineTime: parsed.lastOfflineTime || now,
             lastDailyReset: parsed.lastDailyReset || lastDailyReset,
-            lastWeeklyReset: parsed.lastWeeklyReset || lastWeeklyReset
+            lastWeeklyReset: parsed.lastWeeklyReset || lastWeeklyReset,
+            unclaimedOfflineRewards: unclaimedRewards,
+            lastOfflineRewardTime: now
           };
           
           console.log('Final loaded state:', {
@@ -456,6 +657,422 @@ export const DivineMiningGame: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(getInitialState);
   const [hasLoadedSavedData, setHasLoadedSavedData] = useState(false);
   
+  // Tutorial System State
+  const [tutorialState, setTutorialState] = useState<TutorialState>(() => {
+    const savedTutorial = localStorage.getItem(TUTORIAL_KEY);
+    if (savedTutorial) {
+      try {
+        return JSON.parse(savedTutorial);
+      } catch (error) {
+        console.error('Error loading tutorial state:', error);
+      }
+    }
+    
+    return {
+      isActive: false,
+      currentStep: 0,
+      steps: [],
+      isCompleted: false,
+      showTutorial: false,
+      highlightElement: null
+    };
+  });
+
+  // Tutorial Steps Definition
+  const tutorialSteps: TutorialStep[] = [
+    {
+      id: 'welcome',
+      title: 'Welcome to Divine Mining!',
+      description: 'This tutorial will guide you through the basics of mining divine points. Let\'s start by understanding your main resource.',
+      target: '.divine-points-display',
+      position: 'center',
+      action: 'info'
+    },
+    {
+      id: 'divine-points',
+      title: 'Divine Points',
+      description: 'These are your main currency. You earn them by mining, and spend them on upgrades. Watch the number increase as you mine!',
+      target: '.divine-points-display',
+      position: 'bottom',
+      action: 'info'
+    },
+    {
+      id: 'mining-station',
+      title: 'Mining Station',
+      description: 'This is where the magic happens! Click "ACTIVATE MINING" to start earning points. The glowing core shows mining status.',
+      target: '.mining-station',
+      position: 'bottom',
+      action: 'click'
+    },
+    {
+      id: 'energy-system',
+      title: 'Energy System',
+      description: 'Mining consumes energy (red bar). When energy runs out, mining stops. Energy regenerates over time (blue text).',
+      target: '.energy-status',
+      position: 'top',
+      action: 'info'
+    },
+    {
+      id: 'first-mine',
+      title: 'Start Mining!',
+      description: 'Click the "ACTIVATE MINING" button to start earning points. Watch your divine points increase!',
+      target: '.mining-button',
+      position: 'bottom',
+      action: 'click',
+      condition: (state) => !state.isMining
+    },
+    {
+      id: 'mining-active',
+      title: 'Mining Active!',
+      description: 'Great! You\'re now mining. Notice how your points increase and energy decreases. The core glows when active.',
+      target: '.mining-station',
+      position: 'bottom',
+      action: 'info',
+      condition: (state) => state.isMining
+    },
+    {
+      id: 'upgrades-intro',
+      title: 'Upgrades',
+      description: 'Upgrades make you more efficient. They increase mining speed, energy capacity, and unlock new features.',
+      target: '.upgrades-section',
+      position: 'top',
+      action: 'info'
+    },
+    {
+      id: 'first-upgrade',
+      title: 'Buy Your First Upgrade',
+      description: 'Try buying "MINING SPEED" upgrade. It will increase how many points you earn per second!',
+      target: '.upgrade-mining-speed',
+      position: 'right',
+      action: 'click',
+      condition: (state) => state.divinePoints >= 25
+    },
+    {
+      id: 'upgrade-effect',
+      title: 'Upgrade Effect',
+      description: 'Notice how your mining rate increased! Upgrades stack, so buy more to become even more powerful.',
+      target: '.divine-points-display',
+      position: 'bottom',
+      action: 'info',
+      condition: (state) => state.upgradesPurchased > 0
+    },
+    {
+      id: 'energy-upgrades',
+      title: 'Energy Management',
+      description: 'Energy upgrades are crucial! They reduce energy costs and increase regeneration. Invest in them early.',
+      target: '.upgrade-energy-efficiency',
+      position: 'right',
+      action: 'info'
+    },
+    {
+      id: 'auto-mining',
+      title: 'Auto-Mining',
+      description: 'Auto-mining automatically starts mining when you have enough energy. It\'s a game-changer!',
+      target: '.upgrade-auto-mining',
+      position: 'right',
+      action: 'info'
+    },
+    {
+      id: 'offline-rewards',
+      title: 'Offline Rewards',
+      description: 'You earn points even when the game is closed! Longer offline time = bigger bonuses (up to 140%).',
+      target: '.offline-predictions',
+      position: 'top',
+      action: 'info',
+      condition: (state) => state.isMining
+    },
+    {
+      id: 'achievements',
+      title: 'Achievements',
+      description: 'Complete milestones to unlock achievements. They provide bonuses and track your progress.',
+      target: '.achievements-section',
+      position: 'top',
+      action: 'info',
+      condition: (state) => state.totalPointsEarned > 0
+    },
+    {
+      id: 'statistics',
+      title: 'Statistics',
+      description: 'Track your progress here. Session time, total earned, and efficiency stats help you optimize your strategy.',
+      target: '.statistics-section',
+      position: 'top',
+      action: 'info'
+    },
+    {
+      id: 'help-system',
+      title: 'Help & Tips',
+      description: 'Click "SHOW HELP" anytime for detailed game mechanics and pro tips. The debug menu has advanced features.',
+      target: '.help-button',
+      position: 'left',
+      action: 'info'
+    },
+    {
+      id: 'tutorial-complete',
+      title: 'Tutorial Complete!',
+      description: 'You\'re ready to become a Divine Mining master! Remember: balance mining speed with energy efficiency for optimal results.',
+      target: '.divine-points-display',
+      position: 'center',
+      action: 'info'
+    }
+  ];
+
+  // Tutorial System Functions
+  const startTutorial = useCallback(() => {
+    console.log('Starting tutorial with steps:', tutorialSteps.length);
+    setTutorialState(prev => ({
+      ...prev,
+      isActive: true,
+      currentStep: 0,
+      steps: tutorialSteps,
+      showTutorial: true,
+      highlightElement: tutorialSteps[0]?.target || null
+    }));
+  }, []);
+
+  const nextTutorialStep = useCallback(() => {
+    setTutorialState(prev => {
+      const nextStep = prev.currentStep + 1;
+      if (nextStep >= prev.steps.length) {
+        // Tutorial complete
+        const completedState = {
+          ...prev,
+          isActive: false,
+          isCompleted: true,
+          showTutorial: false,
+          highlightElement: null
+        };
+        localStorage.setItem(TUTORIAL_KEY, JSON.stringify(completedState));
+        return completedState;
+      }
+      
+      const newState = {
+        ...prev,
+        currentStep: nextStep,
+        highlightElement: prev.steps[nextStep]?.target || null
+      };
+      localStorage.setItem(TUTORIAL_KEY, JSON.stringify(newState));
+      return newState;
+    });
+  }, []);
+
+  const skipTutorial = useCallback(() => {
+    const completedState = {
+      ...tutorialState,
+      isActive: false,
+      isCompleted: true,
+      showTutorial: false,
+      highlightElement: null
+    };
+    setTutorialState(completedState);
+    localStorage.setItem(TUTORIAL_KEY, JSON.stringify(completedState));
+  }, [tutorialState]);
+
+  const resetTutorial = useCallback(() => {
+    const resetState = {
+      isActive: false,
+      currentStep: 0,
+      steps: tutorialSteps,
+      isCompleted: false,
+      showTutorial: false,
+      highlightElement: null
+    };
+    setTutorialState(resetState);
+    localStorage.removeItem(TUTORIAL_KEY);
+  }, []);
+
+  // Check if tutorial should be shown
+  useEffect(() => {
+    const shouldShowTutorial = !tutorialState.isCompleted && 
+                              gameState.divinePoints <= 100 && 
+                              gameState.upgradesPurchased === 0;
+    
+    console.log('Tutorial check:', {
+      isCompleted: tutorialState.isCompleted,
+      divinePoints: gameState.divinePoints,
+      upgradesPurchased: gameState.upgradesPurchased,
+      shouldShowTutorial,
+      isActive: tutorialState.isActive
+    });
+    
+    if (shouldShowTutorial && !tutorialState.isActive) {
+      // Auto-start tutorial for new players
+      console.log('Auto-starting tutorial...');
+      setTimeout(() => {
+        startTutorial();
+      }, 2000); // Wait 2 seconds for game to load
+    }
+  }, [gameState.divinePoints, gameState.upgradesPurchased, tutorialState.isCompleted, tutorialState.isActive, startTutorial]);
+
+  // Tutorial step validation
+  useEffect(() => {
+    if (!tutorialState.isActive || !tutorialState.steps[tutorialState.currentStep]) return;
+
+    const currentStep = tutorialState.steps[tutorialState.currentStep];
+    
+    // Check if step should be skipped
+    if (currentStep.skipIf && currentStep.skipIf(gameState)) {
+      nextTutorialStep();
+      return;
+    }
+    
+    // Check if step condition is met and auto-advance for info steps
+    if (currentStep.condition && currentStep.condition(gameState)) {
+      // Auto-advance after a short delay for info steps
+      if (currentStep.action === 'info') {
+        const timer = setTimeout(() => {
+          nextTutorialStep();
+        }, 3000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [tutorialState.currentStep, tutorialState.isActive, gameState, nextTutorialStep]);
+
+  // Tutorial Overlay Component
+  const TutorialOverlay = () => {
+    if (!tutorialState.showTutorial || !tutorialState.steps[tutorialState.currentStep]) {
+      console.log('Tutorial overlay not showing:', {
+        showTutorial: tutorialState.showTutorial,
+        currentStep: tutorialState.currentStep,
+        stepsLength: tutorialState.steps.length
+      });
+      return null;
+    }
+
+    const currentStep = tutorialState.steps[tutorialState.currentStep];
+    const targetElement = document.querySelector(currentStep.target);
+
+    if (!targetElement) {
+      console.log('Target element not found:', currentStep.target);
+      return null;
+    }
+
+    console.log('Tutorial overlay rendering for step:', currentStep.id, 'target:', currentStep.target);
+
+    const rect = targetElement.getBoundingClientRect();
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+    const getTooltipPosition = () => {
+      const baseTop = rect.top + scrollTop;
+      const baseLeft = rect.left + scrollLeft;
+      const elementWidth = rect.width;
+      const elementHeight = rect.height;
+
+      switch (currentStep.position) {
+        case 'top':
+          return {
+            top: baseTop - 120,
+            left: baseLeft + elementWidth / 2 - 150,
+            transform: 'translateY(-10px)'
+          };
+        case 'bottom':
+          return {
+            top: baseTop + elementHeight + 10,
+            left: baseLeft + elementWidth / 2 - 150,
+            transform: 'translateY(10px)'
+          };
+        case 'left':
+          return {
+            top: baseTop + elementHeight / 2 - 60,
+            left: baseLeft - 320,
+            transform: 'translateX(-10px)'
+          };
+        case 'right':
+          return {
+            top: baseTop + elementHeight / 2 - 60,
+            left: baseLeft + elementWidth + 10,
+            transform: 'translateX(10px)'
+          };
+        case 'center':
+        default:
+          return {
+            top: baseTop + elementHeight / 2 - 60,
+            left: baseLeft + elementWidth / 2 - 150,
+            transform: 'translateY(0)'
+          };
+      }
+    };
+
+    const position = getTooltipPosition();
+
+    return (
+      <>
+        {/* Backdrop */}
+        <div className="fixed inset-0 bg-black/50 z-40" onClick={nextTutorialStep} />
+        
+        {/* Highlight */}
+        <div 
+          className="fixed z-50 pointer-events-none"
+          style={{
+            top: rect.top + scrollTop - 5,
+            left: rect.left + scrollLeft - 5,
+            width: rect.width + 10,
+            height: rect.height + 10,
+            border: '3px solid #00ffff',
+            borderRadius: '8px',
+            boxShadow: '0 0 20px rgba(0, 255, 255, 0.6)',
+            animation: 'tutorial-pulse 2s ease-in-out infinite'
+          }}
+        />
+        
+        {/* Tooltip */}
+        <div 
+          className="fixed z-50 bg-black/90 backdrop-blur-xl border border-cyan-400 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.3)] max-w-sm"
+          style={position}
+        >
+          <div className="text-cyan-400 font-mono font-bold text-sm mb-2">
+            {currentStep.title}
+          </div>
+          <div className="text-gray-300 font-mono text-xs mb-3">
+            {currentStep.description}
+          </div>
+          <div className="flex justify-between items-center">
+            <div className="text-cyan-500 font-mono text-xs">
+              Step {tutorialState.currentStep + 1} of {tutorialState.steps.length}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={skipTutorial}
+                className="text-xs text-gray-400 hover:text-red-400 font-mono px-2 py-1 rounded border border-gray-600 hover:border-red-400 transition-colors"
+              >
+                Skip
+              </button>
+              <button
+                onClick={nextTutorialStep}
+                className="text-xs text-cyan-400 hover:text-cyan-300 font-mono px-3 py-1 rounded border border-cyan-400 hover:border-cyan-300 transition-colors"
+              >
+                {tutorialState.currentStep === tutorialState.steps.length - 1 ? 'Finish' : 'Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  };
+
+  // Tutorial CSS Animation
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes tutorial-pulse {
+        0%, 100% {
+          box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+          border-color: #00ffff;
+        }
+        50% {
+          box-shadow: 0 0 30px rgba(0, 255, 255, 0.9);
+          border-color: #00ccff;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      if (document.head.contains(style)) {
+        document.head.removeChild(style);
+      }
+    };
+  }, []);
+  
   // Sync mining game points with shared context - SINGLE SOURCE OF TRUTH
   useEffect(() => {
     // Update the shared context with our points
@@ -476,13 +1093,21 @@ export const DivineMiningGame: React.FC = () => {
       // Save high score to localStorage immediately
       localStorage.setItem(HIGH_SCORE_KEY, newHighScore.toString());
       
-      // Show high score notification
+      // Show high score notification only when NOT mining (to avoid spam)
+      if (!gameState.isMining) {
       if (newHighScore > gameState.allTimeHighScore) {
-        setSaveMessage(`🎉 NEW ALL-TIME HIGH SCORE: ${newHighScore.toLocaleString()}!`);
-        setTimeout(() => setSaveMessage(''), 5000);
+        showSystemNotification(
+          '🎉 NEW ALL-TIME HIGH SCORE!',
+          `${newHighScore.toLocaleString()} points`,
+          'success'
+        );
       } else {
-        setSaveMessage(`🏆 New High Score: ${newHighScore.toLocaleString()}!`);
-        setTimeout(() => setSaveMessage(''), 3000);
+        showSystemNotification(
+          '🏆 New High Score!',
+          `${newHighScore.toLocaleString()} points`,
+          'success'
+        );
+        }
       }
     }
   }, [gameState.divinePoints, setPoints, gameState.highScore, gameState.allTimeHighScore]);
@@ -658,6 +1283,33 @@ export const DivineMiningGame: React.FC = () => {
         baseCost: 1000000,
         costMultiplier: 2.5,
         effectValue: 0.5
+      },
+      {
+        id: 'energy-overflow',
+        name: 'ENERGY OVERFLOW',
+        level: 0,
+        effect: '+5000 max energy',
+        baseCost: 2000000,
+        costMultiplier: 3.0,
+        effectValue: 5000
+      },
+      {
+        id: 'energy-burst',
+        name: 'ENERGY BURST',
+        level: 0,
+        effect: '+2.0 energy/sec',
+        baseCost: 3000000,
+        costMultiplier: 3.5,
+        effectValue: 2.0
+      },
+      {
+        id: 'energy-mastery',
+        name: 'ENERGY MASTERY',
+        level: 0,
+        effect: '-30% energy cost',
+        baseCost: 5000000,
+        costMultiplier: 4.0,
+        effectValue: -0.3
       }
     ];
   };
@@ -892,7 +1544,9 @@ export const DivineMiningGame: React.FC = () => {
     };
   }, [gameState, saveGameState]);
 
-  // Check achievements with enhanced logic
+  
+
+  // Enhanced achievement checking with new notification system
   useEffect(() => {
     const newUnlockedAchievements = achievements.filter(achievement => 
       !achievement.unlocked && achievement.condition(gameState)
@@ -900,25 +1554,7 @@ export const DivineMiningGame: React.FC = () => {
     
     if (newUnlockedAchievements.length > 0) {
       newUnlockedAchievements.forEach(achievement => {
-        // Show achievement notification
-        const notification = document.createElement('div');
-        notification.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 achievement-notification text-white px-6 py-3 rounded-lg shadow-lg z-50 font-mono text-sm animate-achievement-bounce';
-        notification.innerHTML = `
-          <div class="flex items-center space-x-2">
-            <span class="text-2xl">🏆</span>
-            <div>
-              <div class="font-bold">${achievement.name}</div>
-              <div class="text-xs opacity-90">${achievement.description}</div>
-            </div>
-          </div>
-        `;
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-          if (document.body.contains(notification)) {
-            document.body.removeChild(notification);
-          }
-        }, 4000);
+        showAchievementNotification(achievement);
       });
       
       setAchievements(prev => prev.map(achievement => ({
@@ -927,348 +1563,57 @@ export const DivineMiningGame: React.FC = () => {
         unlockedAt: achievement.unlockedAt || (achievement.condition(gameState) ? Date.now() : undefined)
       })));
     }
-  }, [gameState, achievements]);
+  }, [gameState, achievements, showAchievementNotification]);
 
-  // Check for milestone notifications
+  // Enhanced milestone checking with new notification system
   useEffect(() => {
     const milestones = [1000, 10000, 100000, 1000000, 10000000, 100000000];
     const currentPoints = gameState.divinePoints;
     
     milestones.forEach(milestone => {
       if (currentPoints >= milestone && currentPoints < milestone + 100) {
-        // Show milestone notification
-        const notification = document.createElement('div');
-        notification.className = 'fixed top-20 left-1/2 transform -translate-x-1/2 milestone-notification text-white px-6 py-3 rounded-lg shadow-lg z-50 font-mono text-sm animate-achievement-bounce';
-        notification.innerHTML = `
-          <div class="flex items-center space-x-2">
-            <span class="text-2xl">⭐</span>
-            <div>
-              <div class="font-bold">MILESTONE REACHED!</div>
-              <div class="text-xs opacity-90">${milestone.toLocaleString()} Points</div>
-            </div>
-          </div>
-        `;
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-          if (document.body.contains(notification)) {
-            document.body.removeChild(notification);
-          }
-        }, 3000);
+        showMilestoneNotification(milestone, currentPoints);
       }
     });
-  }, [gameState.divinePoints]);
+  }, [gameState.divinePoints, showMilestoneNotification]);
 
-  // Energy regeneration effect
-  useEffect(() => {
-    const energyRegenInterval = setInterval(() => {
+  // Enhanced energy warning system - REMOVED ANNOYING NOTIFICATIONS
+  // useEffect(() => {
+  //   // Removed energy warning notifications - they were too frequent and annoying
+  //   // User can see the energy bar and mining will stop automatically when energy runs out
+  // }, [gameState.isMining, gameState.currentEnergy, getEnhancedMiningRate, upgrades, showEnergyWarningNotification]);
+
+  // Claim offline rewards function (moved before showOfflineRewardsNotification)
+  const claimOfflineRewards = useCallback(() => {
+    if (gameState.unclaimedOfflineRewards > 0) {
       setGameState(prev => {
-        const now = Date.now();
-        const timeDiff = now - prev.lastEnergyRegen;
-        
-        // Calculate energy regeneration with upgrades
-        const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
-        const regenBonus = energyRegenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-        const baseRegen = 0.5; // Reduced base regen to balance increased consumption
-        const totalRegen = baseRegen + regenBonus;
-        
-        const energyToRegen = totalRegen * (timeDiff / 1000) * 0.5; // Half regen per 500ms interval
-        
-        if (energyToRegen > 0 && prev.currentEnergy < prev.maxEnergy) {
-          const newEnergy = Math.min(prev.maxEnergy, prev.currentEnergy + energyToRegen);
-          return {
-            ...prev,
-            currentEnergy: newEnergy,
-            lastEnergyRegen: now
-          };
-        }
-        
-        return prev;
-      });
-    }, 500); // More frequent energy regeneration
-
-    return () => clearInterval(energyRegenInterval);
-  }, [upgrades]);
-
-  // Enhanced mining effect with energy consumption
-  useEffect(() => {
-    if (!gameState.isMining) {
-      if (miningIntervalRef.current) {
-        clearInterval(miningIntervalRef.current);
-        miningIntervalRef.current = undefined;
-      }
-      return;
-    }
-
-    miningIntervalRef.current = setInterval(() => {
-      const boostedRate = getEnhancedMiningRate();
-      
-      // Calculate energy cost with all efficiency upgrades and mining speed scaling
-      const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
-      const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
-      const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-      const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-      const totalEfficiencyBonus = efficiencyBonus + sustainBonus;
-      
-      const baseEnergyCost = 1; // Per 500ms interval (2 per second total)
-      const miningSpeedMultiplier = Math.max(1, boostedRate / gameState.pointsPerSecond); // Scale with mining speed
-      const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus)); // totalEfficiencyBonus is already negative, so this reduces cost
-      
-      setGameState(prev => {
-        // Check if we have enough energy
-        if (prev.currentEnergy < energyCost) {
-          // Stop mining if out of energy
-          console.log(`Mining stopped: Not enough energy (${prev.currentEnergy} < ${energyCost})`);
-          
-          // Show notification
-          setSaveMessage(`⚠️ Mining stopped: Not enough energy! (${prev.currentEnergy.toFixed(1)} < ${energyCost.toFixed(1)})`);
-          setTimeout(() => setSaveMessage(''), 4000);
-          
-          return {
-            ...prev,
-            isMining: false
-          };
-        }
-        
         const newState = {
           ...prev,
-          divinePoints: prev.divinePoints + (boostedRate * 0.5), // Half points per 500ms interval
-          totalEarned24h: prev.totalEarned24h + (boostedRate * 0.5),
-          totalEarned7d: prev.totalEarned7d + (boostedRate * 0.5),
-          totalPointsEarned: prev.totalPointsEarned + (boostedRate * 0.5),
-          currentEnergy: prev.currentEnergy - energyCost
+          divinePoints: prev.divinePoints + prev.unclaimedOfflineRewards,
+          totalPointsEarned: prev.totalPointsEarned + prev.unclaimedOfflineRewards,
+          unclaimedOfflineRewards: 0,
+          lastOfflineRewardTime: Date.now()
         };
         
-        // Log energy consumption every 5 seconds for debugging
-        if (Math.floor(Date.now() / 1000) % 5 === 0) {
-          console.log(`Mining: +${boostedRate.toFixed(2)} points, -${energyCost.toFixed(2)} energy (${newState.currentEnergy.toFixed(1)}/${newState.maxEnergy})`);
-        }
-        
-        // Save every 5 points during mining to ensure persistence
-        if (Math.floor(newState.divinePoints) % 5 === 0) {
-          setTimeout(() => {
-            const saveState = {
-              ...newState,
-              lastSaveTime: Date.now()
-            };
-            saveGameState(saveState);
-          }, 100);
-        }
+        console.log(`Offline rewards claimed: +${prev.unclaimedOfflineRewards} points`);
+        showSystemNotification('Offline Rewards Claimed!', `🎉 Claimed ${Math.floor(prev.unclaimedOfflineRewards)} offline rewards!`, 'success');
         
         return newState;
       });
-    }, 500); // More frequent updates for smoother energy consumption
-
-    return () => {
-      if (miningIntervalRef.current) {
-        clearInterval(miningIntervalRef.current);
-      }
-    };
-  }, [gameState.isMining, gameState.pointsPerSecond, gameState.currentEnergy, saveGameState, getBoostedMiningRate, upgrades]);
-
-  // Save on component unmount and window unload
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      console.log('Window unloading, saving final state:', {
-        divinePoints: gameState.divinePoints,
-        pointsPerSecond: gameState.pointsPerSecond,
-        isMining: gameState.isMining
-      });
       
-      const finalState = {
-        ...gameState,
-        lastSaveTime: Date.now()
-      };
-      
-      // Force save on window unload
-      try {
-        localStorage.setItem(SAVE_KEY, JSON.stringify(finalState));
-        localStorage.setItem(BACKUP_KEY, JSON.stringify(finalState));
-        localStorage.setItem(HIGH_SCORE_KEY, finalState.allTimeHighScore.toString());
-        localStorage.setItem(DIVINE_POINTS_KEY, finalState.divinePoints.toString());
-        localStorage.setItem(TOTAL_EARNED_KEY, finalState.totalPointsEarned.toString());
-        
-        // Save session data separately
-        const sessionData = {
-          sessionStartTime: finalState.sessionStartTime,
-          lastDailyReset: finalState.lastDailyReset,
-          lastWeeklyReset: finalState.lastWeeklyReset,
-          lastSaveTime: finalState.lastSaveTime,
-          version: finalState.version
-        };
-        localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
-        
-        console.log('Final state saved on window unload');
-      } catch (error) {
-        console.error('Error saving final state on window unload:', error);
-      }
-    };
-
-    // Add event listener for window unload
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    
-    return () => {
-      // Remove event listener
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      
-      // Also save on component unmount
-      console.log('Component unmounting, saving final state:', {
-        divinePoints: gameState.divinePoints,
-        pointsPerSecond: gameState.pointsPerSecond,
-        isMining: gameState.isMining
-      });
-      
-      const finalState = {
-        ...gameState,
-        lastSaveTime: Date.now()
-      };
-      
-      // Force save on unmount
-      try {
-        localStorage.setItem(SAVE_KEY, JSON.stringify(finalState));
-        localStorage.setItem(BACKUP_KEY, JSON.stringify(finalState));
-        localStorage.setItem(HIGH_SCORE_KEY, finalState.allTimeHighScore.toString());
-        localStorage.setItem(DIVINE_POINTS_KEY, finalState.divinePoints.toString());
-        localStorage.setItem(TOTAL_EARNED_KEY, finalState.totalPointsEarned.toString());
-        
-        // Save session data separately
-        const sessionData = {
-          sessionStartTime: finalState.sessionStartTime,
-          lastDailyReset: finalState.lastDailyReset,
-          lastWeeklyReset: finalState.lastWeeklyReset,
-          lastSaveTime: finalState.lastSaveTime,
-          version: finalState.version
-        };
-        localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
-        
-        console.log('Final state saved on unmount');
-      } catch (error) {
-        console.error('Error saving final state on unmount:', error);
-      }
-    };
-  }, [gameState]);
-
-  // Enhanced daily/weekly reset logic
-  useEffect(() => {
-    const checkDailyReset = () => {
-      const now = new Date();
-      const today = now.toDateString();
-      const lastDaily = gameState.lastDailyReset;
-      
-      // Reset daily stats if it's a new day
-      if (today !== lastDaily) {
-        setGameState(prev => ({
-          ...prev,
-          totalEarned24h: 0,
-          lastDailyReset: today
-        }));
-        console.log('Daily stats reset');
-      }
-      
-      // Reset weekly stats if it's been 7 days
-      const lastWeekly = new Date(gameState.lastWeeklyReset);
-      const daysDiff = Math.floor((now.getTime() - lastWeekly.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysDiff >= 7) {
-        setGameState(prev => ({
-          ...prev,
-          totalEarned7d: 0,
-          lastWeeklyReset: today
-        }));
-        console.log('Weekly stats reset');
-      }
-    };
-
-    const interval = setInterval(checkDailyReset, 60000); // Check every minute
-    checkDailyReset(); // Check immediately
-
-    return () => clearInterval(interval);
-  }, [gameState.lastDailyReset, gameState.lastWeeklyReset]);
-
-  // Verify save integrity on mount and periodically
-  useEffect(() => {
-    const verifySave = () => {
-      try {
-        const saved = localStorage.getItem(SAVE_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (validateGameState(parsed)) {
-            console.log('Save verification passed:', {
-              divinePoints: parsed.divinePoints,
-              pointsPerSecond: parsed.pointsPerSecond,
-              isMining: parsed.isMining
-            });
-          } else {
-            console.warn('Save verification failed - invalid state');
-          }
-        } else {
-          console.log('No save data to verify');
-        }
-      } catch (error) {
-        console.error('Save verification error:', error);
-      }
-    };
-    
-    // Verify on mount
-    verifySave();
-    
-    // Verify every 30 seconds
-    const interval = setInterval(verifySave, 30 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Enhanced toggle mining with energy validation and auto-mining
-  const toggleMining = useCallback(() => {
-    setGameState(prev => {
-      // If trying to start mining, check energy
-      if (!prev.isMining && prev.currentEnergy < 1) {
-        setSaveMessage('Not enough energy to mine! Wait for energy to regenerate.');
-        setTimeout(() => setSaveMessage(''), 3000);
-        return prev;
-      }
-      
-      const newState = {
-        ...prev,
-        isMining: !prev.isMining
-      };
-      
-      // Immediately save when mining state changes
-      console.log(`Mining ${newState.isMining ? 'STARTED' : 'STOPPED'}:`, {
-        divinePoints: newState.divinePoints,
-        pointsPerSecond: newState.pointsPerSecond,
-        isMining: newState.isMining,
-        currentEnergy: newState.currentEnergy
-      });
-      
-      // Save immediately
-      setTimeout(() => {
-        const saveState = {
-          ...newState,
-          lastSaveTime: Date.now()
-        };
-        saveGameState(saveState);
-      }, 100);
-      
-      return newState;
-    });
-    
-    // Clear mining resumed flag when user manually toggles
-    setMiningResumed(false);
-  }, [saveGameState]);
-
-  // Auto-mining effect
-  useEffect(() => {
-    const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
-    const hasAutoMining = autoMiningUpgrades.some(u => u.level > 0);
-    
-    if (hasAutoMining && !gameState.isMining && gameState.currentEnergy >= 1) {
-      // Auto-start mining if we have energy and auto-mining upgrade
-      console.log('Auto-mining activated');
-      setGameState(prev => ({
-        ...prev,
-        isMining: true
-      }));
+      setShowOfflineRewards(false);
+      setOfflineRewardNotification('');
     }
-  }, [gameState.currentEnergy, gameState.isMining, upgrades]);
+  }, [gameState.unclaimedOfflineRewards, showSystemNotification]);
+
+
+
+  // Enhanced offline rewards notification
+  useEffect(() => {
+    if (gameState.unclaimedOfflineRewards > 0 && !showOfflineRewards) {
+      showOfflineRewardsNotification(gameState.unclaimedOfflineRewards, gameState.offlineEfficiencyBonus, claimOfflineRewards);
+    }
+  }, [gameState.unclaimedOfflineRewards, gameState.offlineEfficiencyBonus, showOfflineRewards, showOfflineRewardsNotification, claimOfflineRewards]);
 
   // Enhanced purchase upgrade with validation
   const purchaseUpgrade = useCallback((upgradeId: string) => {
@@ -1293,7 +1638,13 @@ export const DivineMiningGame: React.FC = () => {
           newState = {
             ...newState,
             maxEnergy: prev.maxEnergy + upgrade.effectValue,
-            currentEnergy: Math.min(prev.currentEnergy, prev.maxEnergy + upgrade.effectValue) // Don't exceed new max
+            currentEnergy: Math.min(prev.currentEnergy, prev.maxEnergy + upgrade.effectValue)
+          };
+        } else if (upgradeId === 'energy-overflow') {
+          newState = {
+            ...newState,
+            maxEnergy: prev.maxEnergy + upgrade.effectValue,
+            currentEnergy: Math.min(prev.currentEnergy, prev.maxEnergy + upgrade.effectValue)
           };
         } else if (upgradeId.startsWith('mining-') || upgradeId === 'auto-miner' || upgradeId === 'divine-boost' || 
                    upgradeId === 'quantum-miner' || upgradeId === 'cosmic-miner' || upgradeId === 'stellar-miner' || 
@@ -1319,15 +1670,11 @@ export const DivineMiningGame: React.FC = () => {
           localStorage.setItem('divineMiningUpgrades', JSON.stringify(updatedUpgrades));
           console.log('Upgrades saved to localStorage');
           
-          // Show save confirmation
-          setLastSaveStatus('success');
-          setSaveMessage(`Upgrade purchased and saved!`);
-          setTimeout(() => setSaveMessage(''), 2000);
+          // Show upgrade notification
+          showUpgradeNotification(upgrade.name, cost);
         } catch (error) {
           console.error('Error saving upgrades:', error);
-          setLastSaveStatus('error');
-          setSaveMessage('Failed to save upgrade!');
-          setTimeout(() => setSaveMessage(''), 3000);
+          showSystemNotification('Upgrade Error', 'Failed to save upgrade!', 'error');
         }
         
         return updatedUpgrades;
@@ -1335,9 +1682,9 @@ export const DivineMiningGame: React.FC = () => {
       
       console.log(`Purchased upgrade: ${upgrade.name} for ${cost} points`);
     } else {
-      console.warn('Not enough points for upgrade');
+      showSystemNotification('Insufficient Points', 'Not enough points for this upgrade!', 'warning');
     }
-  }, [upgrades, gameState.divinePoints]);
+  }, [upgrades, gameState.divinePoints, showUpgradeNotification, showSystemNotification]);
 
   // Enhanced number formatting
   const formatNumber = useCallback((num: number): string => {
@@ -1412,7 +1759,9 @@ export const DivineMiningGame: React.FC = () => {
           maxEnergy: 5000,
           lastEnergyRegen: Date.now(),
           offlineEfficiencyBonus: 0, // New: Bonus for offline mining
-          lastOfflineTime: Date.now() // New: Track last offline time
+          lastOfflineTime: Date.now(), // New: Track last offline time
+          unclaimedOfflineRewards: 0, // New: Track unclaimed offline rewards
+          lastOfflineRewardTime: Date.now() // New: Track when offline rewards were last calculated
         };
         
         setGameState(newState);
@@ -1583,9 +1932,231 @@ export const DivineMiningGame: React.FC = () => {
 
   const unlockedAchievements = achievements.filter(a => a.unlocked);
 
-  return (
+
+
+  // Enhanced toggle mining with energy validation and auto-mining
+  const toggleMining = useCallback(() => {
+    setGameState(prev => {
+      // If trying to start mining, check energy
+      if (!prev.isMining && prev.currentEnergy < 1) {
+        // Silently prevent mining without notification - user can see energy bar
+        return prev;
+      }
+      
+      const newState = {
+        ...prev,
+        isMining: !prev.isMining
+      };
+      
+      // Immediately save when mining state changes
+      console.log(`Mining ${newState.isMining ? 'STARTED' : 'STOPPED'}:`, {
+        divinePoints: newState.divinePoints,
+        pointsPerSecond: newState.pointsPerSecond,
+        isMining: newState.isMining,
+        currentEnergy: newState.currentEnergy
+      });
+      
+      // Save immediately
+      setTimeout(() => {
+        const saveState = {
+          ...newState,
+          lastSaveTime: Date.now()
+        };
+        saveGameState(saveState);
+      }, 100);
+      
+      return newState;
+    });
+    
+    // Clear mining resumed flag when user manually toggles
+    setMiningResumed(false);
+  }, [saveGameState, showSystemNotification]);
+
+  // Mining interval effect - ACTUALLY HANDLES THE MINING PROCESS
+  useEffect(() => {
+    if (!gameState.isMining) {
+      // Clear any existing mining interval
+      if (miningIntervalRef.current) {
+        clearInterval(miningIntervalRef.current);
+        miningIntervalRef.current = undefined;
+      }
+      return;
+    }
+
+    // Start mining interval
+    miningIntervalRef.current = setInterval(() => {
+      setGameState(prev => {
+        // Check if we have enough energy to continue mining
+        const boostedRate = getEnhancedMiningRate();
+        const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+        const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+        const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+        const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+        
+        const baseEnergyCost = 0.8;
+        const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / prev.pointsPerSecond));
+        const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
+        
+        // Check if we have enough energy for this mining cycle
+        if (prev.currentEnergy < energyCost) {
+          console.log('Mining stopped: Not enough energy', {
+            currentEnergy: prev.currentEnergy,
+            energyCost: energyCost,
+            boostedRate: boostedRate
+          });
+          
+          // Stop mining due to insufficient energy
+          return {
+            ...prev,
+            isMining: false
+          };
+        }
+        
+        // Calculate points earned this cycle
+        const pointsEarned = boostedRate * 0.5; // 500ms cycle
+        
+        // Update game state
+        const newState = {
+          ...prev,
+          divinePoints: prev.divinePoints + pointsEarned,
+          totalPointsEarned: prev.totalPointsEarned + pointsEarned,
+          currentEnergy: prev.currentEnergy - energyCost,
+          totalEarned24h: prev.totalEarned24h + pointsEarned,
+          totalEarned7d: prev.totalEarned7d + pointsEarned
+        };
+        
+        console.log('Mining cycle:', {
+          pointsEarned: pointsEarned.toFixed(2),
+          energyCost: energyCost.toFixed(2),
+          newEnergy: newState.currentEnergy.toFixed(2),
+          boostedRate: boostedRate.toFixed(2)
+        });
+        
+        return newState;
+      });
+    }, 500); // Run every 500ms for smooth mining
+
+    // Cleanup function
+    return () => {
+      if (miningIntervalRef.current) {
+        clearInterval(miningIntervalRef.current);
+        miningIntervalRef.current = undefined;
+      }
+    };
+  }, [gameState.isMining, getEnhancedMiningRate, upgrades, saveGameState]);
+
+  // Energy regeneration effect
+  useEffect(() => {
+    if (gameState.currentEnergy >= gameState.maxEnergy) {
+      return; // No need to regenerate if at max
+    }
+
+    const energyRegenInterval = setInterval(() => {
+      setGameState(prev => {
+        const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
+        const energyBurstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
+        const regenBonus = energyRegenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const burstBonus = energyBurstUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const baseRegen = 0.3;
+        const totalRegen = baseRegen + regenBonus + burstBonus;
+        
+        const newEnergy = Math.min(prev.maxEnergy, prev.currentEnergy + totalRegen);
+        
+        return {
+          ...prev,
+          currentEnergy: newEnergy,
+          lastEnergyRegen: Date.now()
+        };
+      });
+    }, 1000); // Regenerate energy every second
+
+    return () => clearInterval(energyRegenInterval);
+  }, [gameState.currentEnergy, gameState.maxEnergy, upgrades]);
+
+  // Auto-mining effect
+  useEffect(() => {
+    const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
+    const hasAutoMining = autoMiningUpgrades.some(u => u.level > 0);
+    
+    if (!hasAutoMining || gameState.isMining) {
+      return; // No auto-mining or already mining
+    }
+    
+    // Check if we have enough energy to start auto-mining
+    const boostedRate = getEnhancedMiningRate();
+    const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+    const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+    const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+    const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+    const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+    const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+    const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+    
+    const baseEnergyCost = 0.8;
+    const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
+    const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
+    const minimumEnergyRequired = energyCost * 2 * 5; // 5 seconds worth
+    
+    if (gameState.currentEnergy >= minimumEnergyRequired) {
+      console.log('Auto-mining started: Sufficient energy available');
+      setGameState(prev => ({
+        ...prev,
+        isMining: true
+      }));
+    }
+  }, [gameState.currentEnergy, gameState.isMining, upgrades, getEnhancedMiningRate]);
+
+    return (
     <div className="flex-1 p-4 space-y-2 overflow-y-auto game-scrollbar">
-      {/* Save Status Indicator */}
+      
+      {/* Test Notification Button - REMOVED FOR PRODUCTION */}
+      {/* <div className="mb-4 space-y-2">
+        <div className="text-cyan-400 font-mono font-bold text-sm">🔧 NOTIFICATION SYSTEM TEST</div>
+        <div className="flex flex-wrap gap-2">
+      <button 
+            onClick={() => showSystemNotification('Test Success', 'This is a success notification test!', 'success')}
+            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors text-xs font-mono"
+      >
+            Success Test
+      </button>
+          <button 
+            onClick={() => showSystemNotification('Test Error', 'This is an error notification test!', 'error')}
+            className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors text-xs font-mono"
+          >
+            Error Test
+          </button>
+          <button 
+            onClick={() => showSystemNotification('Test Warning', 'This is a warning notification test!', 'warning')}
+            className="px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500 transition-colors text-xs font-mono"
+          >
+            Warning Test
+          </button>
+          <button 
+            onClick={() => showUpgradeNotification('Test Upgrade', 1000)}
+            className="px-3 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors text-xs font-mono"
+          >
+            Upgrade Test
+          </button>
+          <button 
+            onClick={() => showAchievementNotification({ name: 'Test Achievement', description: 'This is a test achievement!' })}
+            className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors text-xs font-mono"
+          >
+            Achievement Test
+          </button>
+          <button 
+            onClick={() => showMilestoneNotification(10000, 10000)}
+            className="px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500 transition-colors text-xs font-mono"
+          >
+            Milestone Test
+          </button>
+        </div>
+      </div> */}
+
+        
+        {/* Save Status Indicator */}
       {/* <div className="fixed top-4 right-4 z-50">
         <div className={`px-3 py-1 rounded-lg text-xs font-mono ${
           lastSaveStatus === 'success' ? 'bg-green-500/80 text-white' :
@@ -1604,7 +2175,7 @@ export const DivineMiningGame: React.FC = () => {
       </div> */}
 
       {/* Divine Points Display */}
-      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] divine-points-display">
         {/* Futuristic Corner Accents */}
         <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
         <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
@@ -1650,8 +2221,45 @@ export const DivineMiningGame: React.FC = () => {
         </div>
       </div>
 
+      {/* Offline Rewards Notification */}
+      {showOfflineRewards && gameState.unclaimedOfflineRewards > 0 && (
+        <div className="relative bg-gradient-to-r from-purple-900/40 to-blue-900/40 backdrop-blur-xl border border-purple-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(147,51,234,0.2)] animate-pulse">
+          {/* Futuristic Corner Accents */}
+          <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-purple-400"></div>
+          <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-purple-400"></div>
+          <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-purple-400"></div>
+          <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-purple-400"></div>
+          
+          <div className="text-center">
+            <div className="flex items-center justify-center space-x-2 mb-3">
+              <div className="w-3 h-3 bg-purple-400 rounded-full animate-pulse"></div>
+              <span className="text-purple-400 font-mono font-bold tracking-wider text-sm">🎁 OFFLINE REWARDS AVAILABLE</span>
+            </div>
+            
+            <div className="text-2xl font-mono font-bold text-purple-300 mb-2 tracking-wider">
+              {formatNumber(gameState.unclaimedOfflineRewards)} Points
+            </div>
+            
+            <div className="text-xs text-purple-400 font-mono mb-3">
+              {offlineRewardNotification}
+            </div>
+            
+            <button 
+              onClick={claimOfflineRewards}
+              className="font-mono font-bold px-6 py-3 rounded-lg transition-all duration-300 border tracking-wider game-button bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-[0_0_20px_rgba(147,51,234,0.4)] border-purple-400 hover:scale-105"
+            >
+              🎉 CLAIM REWARDS
+            </button>
+            
+            <div className="text-xs text-purple-500 font-mono mt-2">
+              Rewards earned while you were away!
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mining Station */}
-      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] mining-station">
         {/* Futuristic Corner Accents */}
         <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
         <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
@@ -1667,6 +2275,15 @@ export const DivineMiningGame: React.FC = () => {
                 {miningResumed ? 'RESUMED' : 'ACTIVE'}
               </div>
             )}
+            {(() => {
+              const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
+              const hasAutoMining = autoMiningUpgrades.some(u => u.level > 0);
+              return hasAutoMining ? (
+                <div className="text-xs text-purple-400 font-mono animate-pulse">
+                  🤖 AUTO
+                </div>
+              ) : null;
+            })()}
           </div>
           
           {/* Mining Animation */}
@@ -1695,7 +2312,7 @@ export const DivineMiningGame: React.FC = () => {
           <button 
             onClick={toggleMining}
             disabled={!gameState.isMining && gameState.currentEnergy < 1}
-            className={`font-mono font-bold px-6 py-3 rounded-lg transition-all duration-300 border tracking-wider game-button ${
+            className={`font-mono font-bold px-6 py-3 rounded-lg transition-all duration-300 border tracking-wider game-button mining-button ${
               gameState.isMining 
                 ? 'bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)] border-red-400'
                 : gameState.currentEnergy < 1
@@ -1706,8 +2323,8 @@ export const DivineMiningGame: React.FC = () => {
             {gameState.isMining ? 'STOP MINING' : gameState.currentEnergy < 1 ? 'NO ENERGY' : 'ACTIVATE MINING'}
           </button>
           
-          {/* Energy Status */}
-          <div className="mt-3 text-center">
+                      {/* Energy Status */}
+            <div className="mt-3 text-center energy-status">
             {/* Energy Bar */}
             <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
               <div 
@@ -1723,14 +2340,45 @@ export const DivineMiningGame: React.FC = () => {
             <div className="text-xs text-gray-400 font-mono">
               Energy: {gameState.currentEnergy.toLocaleString()}/{gameState.maxEnergy.toLocaleString()}
             </div>
+            
+            {/* Energy Efficiency Display */}
+            {(() => {
+              const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+              const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+              const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+              const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+              const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+              const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+              const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus); // Cap at 95% reduction
+              
+              return (
+                <div className="text-xs text-green-400 font-mono">
+                  Efficiency: {(totalEfficiencyBonus * 100).toFixed(1)}% reduction
+                </div>
+              );
+            })()}
+            
             {gameState.currentEnergy < gameState.maxEnergy && (
               <div className="text-xs text-blue-400 font-mono animate-pulse">
-                Regenerating: +{(1 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0)).toFixed(1)}/sec
+                Regenerating: +{(0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0)).toFixed(1)}/sec
               </div>
             )}
             {gameState.isMining && (
               <div className="text-xs text-red-400 font-mono">
-                Consuming: -{Math.max(0.1, 1 * (1 + upgrades.filter(u => u.id === 'energy-efficiency').reduce((sum, u) => sum + (u.effectValue * u.level), 0))).toFixed(1)}/sec
+                Consuming: -{(() => {
+                  const boostedRate = getEnhancedMiningRate();
+                  const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                  const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+                  const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+                  const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                  const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                  const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                  const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus); // Cap at 95% reduction
+                  const baseEnergyCost = 0.8;
+                  const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
+                  const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
+                  return (energyCost * 2).toFixed(1);
+                })()}/sec
               </div>
             )}
             {gameState.currentEnergy < 100 && gameState.isMining && (
@@ -1739,9 +2387,86 @@ export const DivineMiningGame: React.FC = () => {
               </div>
             )}
             
+            {/* Energy Time Estimates */}
+            {gameState.isMining && (
+              <div className="text-xs text-orange-400 font-mono mt-1">
+                {(() => {
+                  const boostedRate = getEnhancedMiningRate();
+                  const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                  const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+                  const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+                  const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                  const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                  const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                  const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus); // Cap at 95% reduction
+                  const baseEnergyCost = 0.8;
+                  const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
+                  const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
+                  const timeToEmpty = gameState.currentEnergy / (energyCost * 2);
+                  
+                  if (timeToEmpty < 60) {
+                    return `⚠️ ${timeToEmpty.toFixed(0)}s until empty`;
+                  } else if (timeToEmpty < 3600) {
+                    return `⏰ ${(timeToEmpty / 60).toFixed(1)}m until empty`;
+                  } else {
+                    return `⏰ ${(timeToEmpty / 3600).toFixed(1)}h until empty`;
+                  }
+                })()}
+              </div>
+            )}
+            
+            {/* Auto-mining Status */}
+            {(() => {
+              const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
+              const hasAutoMining = autoMiningUpgrades.some(u => u.level > 0);
+              
+              if (!hasAutoMining) return null;
+              
+              if (!gameState.isMining) {
+                // Calculate when auto-mining will restart
+                const boostedRate = getEnhancedMiningRate();
+                const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+                const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+                const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+                
+                const baseEnergyCost = 0.8;
+                const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
+                const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
+                const minimumEnergyRequired = energyCost * 2 * 5; // 5 seconds worth
+                
+                const energyRegen = 0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const energyNeeded = minimumEnergyRequired - gameState.currentEnergy;
+                const timeToRestart = energyNeeded / energyRegen;
+                
+                if (timeToRestart > 0) {
+                  return (
+                    <div className="text-xs text-purple-400 font-mono mt-1 animate-pulse">
+                      🤖 Auto-restart in {timeToRestart < 60 ? `${timeToRestart.toFixed(0)}s` : `${(timeToRestart / 60).toFixed(1)}m`}
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className="text-xs text-purple-400 font-mono mt-1 animate-pulse">
+                      🤖 Auto-restarting soon...
+                    </div>
+                  );
+                }
+              } else {
+                return (
+                  <div className="text-xs text-purple-400 font-mono mt-1">
+                    🤖 Auto-mining active
+                  </div>
+                );
+              }
+            })()}
+            
             {/* Offline Earnings Prediction */}
             {gameState.isMining && (
-              <div className="mt-3 p-2 bg-purple-900/30 border border-purple-500/30 rounded-lg">
+              <div className="mt-3 p-2 bg-purple-900/30 border border-purple-500/30 rounded-lg offline-predictions">
                 <div className="text-xs text-purple-400 font-mono font-bold mb-1">OFFLINE PREDICTIONS:</div>
                 <div className="text-xs text-purple-300 space-y-1">
                   <div>1h: {formatNumber(getPotentialOfflineEarnings(1).totalEarnings)} points</div>
@@ -1750,6 +2475,11 @@ export const DivineMiningGame: React.FC = () => {
                   <div className="text-purple-400">
                     +{formatNumber(getPotentialOfflineEarnings(24).energyRegen)} energy
                   </div>
+                  {gameState.unclaimedOfflineRewards > 0 && (
+                    <div className="text-yellow-400 font-bold border-t border-purple-500/30 pt-1 mt-1">
+                      +{formatNumber(gameState.unclaimedOfflineRewards)} unclaimed rewards
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1758,7 +2488,7 @@ export const DivineMiningGame: React.FC = () => {
       </div>
 
       {/* Upgrades Section */}
-      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] upgrades-section">
         {/* Futuristic Corner Accents */}
         <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
         <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
@@ -1774,7 +2504,7 @@ export const DivineMiningGame: React.FC = () => {
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => setShowHelp(!showHelp)}
-                className="text-xs text-cyan-400 hover:text-cyan-300 font-mono tracking-wide game-button"
+                className="text-xs text-cyan-400 hover:text-cyan-300 font-mono tracking-wide game-button help-button"
               >
                 {showHelp ? 'HIDE HELP' : 'SHOW HELP'}
               </button>
@@ -1823,10 +2553,30 @@ export const DivineMiningGame: React.FC = () => {
                 <div className="text-yellow-400 font-semibold mt-2">⚡ Energy Management:</div>
                 <div>• Invest in Energy Efficiency upgrades early</div>
                 <div>• Energy Sustain reduces costs by 20% per level</div>
+                <div>• Energy Mastery provides massive 30% cost reduction</div>
+                <div>• Energy Burst dramatically increases regeneration</div>
+                <div>• Energy Overflow gives massive capacity increases</div>
                 <div>• Auto-mining starts automatically when energy is available</div>
                 
+                <div className="text-yellow-400 font-semibold mt-2">⚡ Energy Strategy:</div>
+                <div>• Balance mining speed with energy efficiency</div>
+                <div>• Higher mining rates consume more energy</div>
+                <div>• Efficiency upgrades stack multiplicatively</div>
+                <div>• Plan offline periods to let energy regenerate</div>
+                <div>• Monitor "time until empty" for optimal mining</div>
+                
+                <div className="text-yellow-400 font-semibold mt-2">🤖 Auto-Mining System:</div>
+                <div>• Auto-mining starts when you have sufficient energy</div>
+                <div>• Automatically restarts when energy regenerates</div>
+                <div>• Requires 5-10 seconds worth of energy to start</div>
+                <div>• Shows countdown until auto-restart</div>
+                <div>• Works perfectly with energy efficiency upgrades</div>
+                
                 <div className="text-yellow-400 font-semibold mt-2">🎯 Upgrade Priority:</div>
-                <div>• Mining Speed → Energy Efficiency → Divine Resonance</div>
+                <div>• Mining Speed → Energy Efficiency → Energy Sustain</div>
+                <div>• Energy Mastery for late-game efficiency</div>
+                <div>• Energy Burst for rapid regeneration</div>
+                <div>• Energy Overflow for massive capacity</div>
                 <div>• Divine Resonance multiplies boost effectiveness</div>
                 <div>• Offline Efficiency rewards strategic breaks</div>
                 
@@ -1834,6 +2584,18 @@ export const DivineMiningGame: React.FC = () => {
                 <div>• Export save data regularly using debug menu</div>
                 <div>• App creates backups every 5 minutes</div>
                 <div>• Multiple save slots prevent data loss</div>
+                
+                <div className="text-yellow-400 font-semibold mt-2">📊 Session Management:</div>
+                <div>• Session data is saved separately for reliability</div>
+                <div>• Session duration tracks total play time</div>
+                <div>• Daily/weekly resets are preserved across sessions</div>
+                <div>• Use debug menu to manually save/load session data</div>
+                
+                <div className="text-yellow-400 font-semibold mt-2">🎁 Offline Rewards System:</div>
+                <div>• Earn rewards even when the app is closed</div>
+                <div>• Rewards accumulate and can be claimed anytime</div>
+                <div>• Longer offline time = bigger efficiency bonuses</div>
+                <div>• Claim rewards to add them to your total points</div>
                 
                 <div className="text-yellow-400 font-semibold mt-2">💎 Boost Strategy:</div>
                 <div>• Use boosts during active mining sessions</div>
@@ -1845,90 +2607,416 @@ export const DivineMiningGame: React.FC = () => {
         )}
 
         {showDebug && (
-          <div className="mb-4 p-3 bg-purple-800/50 border border-purple-500/30 rounded-lg">
-            <div className="text-purple-300 font-mono font-bold text-sm mb-2">DEBUG INFO:</div>
-            <div className="text-gray-400 font-mono text-xs space-y-1">
-              <div>Version: {gameState.version}</div>
-              <div>Last Save: {new Date(gameState.lastSaveTime).toLocaleString()}</div>
-              <div>Session Start: {new Date(gameState.sessionStartTime).toLocaleString()}</div>
-              <div>Daily Reset: {gameState.lastDailyReset}</div>
-              <div>Weekly Reset: {gameState.lastWeeklyReset}</div>
-              <div>Mining Status: {gameState.isMining ? 'ACTIVE' : 'INACTIVE'}</div>
-              <div>Mining Resumed: {miningResumed ? 'YES' : 'NO'}</div>
-              <div>Mining Rate: {gameState.pointsPerSecond}/sec</div>
-              <div className="flex space-x-2 mt-2">
+          <div className="mb-4 p-4 bg-purple-900/50 border border-purple-500/30 rounded-lg">
+            <div className="text-purple-300 font-mono font-bold text-sm mb-3 flex items-center justify-between">
+              <span>🔧 DEBUG PANEL</span>
+              <div className="text-xs text-purple-400">
+                Version: {gameState.version} | Last Save: {new Date(gameState.lastSaveTime).toLocaleTimeString()}
+              </div>
+            </div>
+            
+            {/* Game State Info */}
+            <div className="mb-4 p-3 bg-purple-800/30 border border-purple-500/20 rounded">
+              <div className="text-purple-200 font-mono font-bold text-xs mb-2">📊 GAME STATE:</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div className="text-purple-300">Points: {gameState.divinePoints.toLocaleString()}</div>
+                <div className="text-purple-300">Rate: {gameState.pointsPerSecond}/s</div>
+                <div className="text-purple-300">Energy: {gameState.currentEnergy}/{gameState.maxEnergy}</div>
+                <div className="text-purple-300">Mining: {gameState.isMining ? 'ON' : 'OFF'}</div>
+                <div className="text-purple-300">Session: {getSessionDuration()}</div>
+                <div className="text-purple-300">High Score: {gameState.highScore.toLocaleString()}</div>
+                <div className="text-purple-300">Upgrades: {gameState.upgradesPurchased}</div>
+                <div className="text-purple-300">Offline: {gameState.unclaimedOfflineRewards.toLocaleString()}</div>
+              </div>
+            </div>
+
+            {/* Save Management */}
+            <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500/20 rounded">
+              <div className="text-blue-200 font-mono font-bold text-xs mb-2">💾 SAVE MANAGEMENT:</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <button
                   onClick={exportSave}
-                  className="text-xs bg-blue-500 px-2 py-1 rounded"
+                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  EXPORT
+                  📤 EXPORT
                 </button>
                 <button
                   onClick={importSave}
-                  className="text-xs bg-green-500 px-2 py-1 rounded"
+                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  IMPORT
-                </button>
-                <button
-                  onClick={debugLocalStorage}
-                  className="text-xs bg-purple-500 px-2 py-1 rounded"
-                >
-                  DEBUG LS
+                  📥 IMPORT
                 </button>
                 <button
                   onClick={manualSave}
-                  className="text-xs bg-orange-500 px-2 py-1 rounded"
+                  className="text-xs bg-orange-600 hover:bg-orange-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  SAVE NOW
+                  💾 SAVE NOW
                 </button>
                 <button
                   onClick={forceSave}
-                  className="text-xs bg-red-500 px-2 py-1 rounded"
+                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  FORCE SAVE
+                  ⚡ FORCE SAVE
                 </button>
+              </div>
+            </div>
+
+            {/* Tutorial Management */}
+            <div className="mb-4 p-3 bg-cyan-900/30 border border-cyan-500/20 rounded">
+              <div className="text-cyan-200 font-mono font-bold text-xs mb-2">🎓 TUTORIAL MANAGEMENT:</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                 <button
                   onClick={() => {
-                    console.log('=== MANUAL DIVINE POINTS SAVE ===');
-                    localStorage.setItem(DIVINE_POINTS_KEY, gameState.divinePoints.toString());
-                    console.log('Divine points saved:', gameState.divinePoints);
-                    setSaveMessage(`Divine points saved: ${gameState.divinePoints.toLocaleString()}`);
+                    console.log('=== TUTORIAL RESET ===');
+                    resetTutorial();
+                    setSaveMessage('Tutorial reset! Will start automatically for new players.');
                     setTimeout(() => setSaveMessage(''), 3000);
                   }}
-                  className="text-xs bg-blue-500 px-2 py-1 rounded"
+                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  SAVE POINTS
+                  🔄 RESET TUTORIAL
                 </button>
                 <button
                   onClick={() => {
-                    console.log('=== MANUAL TOTAL EARNED SAVE ===');
-                    localStorage.setItem(TOTAL_EARNED_KEY, gameState.totalPointsEarned.toString());
-                    console.log('Total earned saved:', gameState.totalPointsEarned);
-                    setSaveMessage(`Total earned saved: ${gameState.totalPointsEarned.toLocaleString()}`);
+                    console.log('=== FORCE TUTORIAL START ===');
+                    startTutorial();
+                    setSaveMessage('Tutorial started manually!');
                     setTimeout(() => setSaveMessage(''), 3000);
                   }}
-                  className="text-xs bg-green-500 px-2 py-1 rounded"
+                  className="text-xs bg-cyan-600 hover:bg-cyan-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  SAVE TOTAL
+                  ▶️ START TUTORIAL
                 </button>
                 <button
                   onClick={() => {
-                    console.log('=== MANUAL SESSION SAVE ===');
+                    console.log('=== TUTORIAL STATUS ===');
+                    console.log('Tutorial State:', tutorialState);
+                    setSaveMessage(`Tutorial: ${tutorialState.isCompleted ? 'Completed' : 'Active'} (Step ${tutorialState.currentStep + 1})`);
+                    setTimeout(() => setSaveMessage(''), 3000);
+                  }}
+                  className="text-xs bg-gray-600 hover:bg-gray-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  📊 TUTORIAL STATUS
+                </button>
+              </div>
+            </div>
+
+            {/* Session Management */}
+            <div className="mb-4 p-3 bg-green-900/30 border border-green-500/20 rounded">
+              <div className="text-green-200 font-mono font-bold text-xs mb-2">⏰ SESSION MANAGEMENT:</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <button
+                  onClick={() => {
+                    console.log('=== SESSION RESET ===');
+                    const newSessionStartTime = Date.now();
+                    const today = new Date().toDateString();
+                    
+                    setGameState(prev => ({
+                      ...prev,
+                      sessionStartTime: newSessionStartTime,
+                      lastDailyReset: today,
+                      lastWeeklyReset: today,
+                      lastSaveTime: Date.now()
+                    }));
+                    
+                    // Save session data immediately
                     const sessionData = {
-                      sessionStartTime: gameState.sessionStartTime,
-                      lastDailyReset: gameState.lastDailyReset,
-                      lastWeeklyReset: gameState.lastWeeklyReset,
-                      lastSaveTime: gameState.lastSaveTime,
+                      sessionStartTime: newSessionStartTime,
+                      lastDailyReset: today,
+                      lastWeeklyReset: today,
+                      lastSaveTime: Date.now(),
                       version: gameState.version
                     };
                     localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
-                    console.log('Session data saved:', sessionData);
-                    setSaveMessage(`Session data saved! Duration: ${getSessionDuration()}`);
+                    
+                    console.log('Session reset successful:', sessionData);
+                    setSaveMessage('Session reset! New session started.');
                     setTimeout(() => setSaveMessage(''), 3000);
                   }}
-                  className="text-xs bg-purple-500 px-2 py-1 rounded"
+                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  SAVE SESSION
+                  🔄 RESET SESSION
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('=== MANUAL SESSION LOAD ===');
+                    
+                    const savedSession = localStorage.getItem(SESSION_KEY);
+                    if (savedSession) {
+                      try {
+                        const session = JSON.parse(savedSession);
+                        console.log('Manual session load successful:', session);
+                        setGameState(prev => ({
+                          ...prev,
+                          sessionStartTime: session.sessionStartTime || prev.sessionStartTime,
+                          lastDailyReset: session.lastDailyReset || prev.lastDailyReset,
+                          lastWeeklyReset: session.lastWeeklyReset || prev.lastWeeklyReset,
+                          lastSaveTime: Date.now()
+                        }));
+                        setSaveMessage(`Session loaded! Duration: ${getSessionDuration()}`);
+                        setTimeout(() => setSaveMessage(''), 3000);
+                      } catch (error) {
+                        console.error('Manual session load error:', error);
+                        setSaveMessage('Error loading session data');
+                        setTimeout(() => setSaveMessage(''), 3000);
+                      }
+                    } else {
+                      console.log('No session data to load');
+                      setSaveMessage('No session data found');
+                      setTimeout(() => setSaveMessage(''), 3000);
+                    }
+                  }}
+                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  📥 LOAD SESSION
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('=== SESSION INFO ===');
+                    console.log('Session Start:', new Date(gameState.sessionStartTime).toLocaleString());
+                    console.log('Daily Reset:', gameState.lastDailyReset);
+                    console.log('Weekly Reset:', gameState.lastWeeklyReset);
+                    console.log('Duration:', getSessionDuration());
+                    setSaveMessage(`Session: ${getSessionDuration()} | Daily: ${gameState.lastDailyReset}`);
+                    setTimeout(() => setSaveMessage(''), 4000);
+                  }}
+                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  📊 SESSION INFO
+                </button>
+              </div>
+            </div>
+
+            {/* Energy Management */}
+            <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-500/20 rounded">
+              <div className="text-yellow-200 font-mono font-bold text-xs mb-2">⚡ ENERGY MANAGEMENT:</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <button
+                  onClick={() => {
+                    console.log('=== ENERGY DEBUG ===');
+                    console.log('Current Energy:', gameState.currentEnergy);
+                    console.log('Max Energy:', gameState.maxEnergy);
+                    console.log('Is Mining:', gameState.isMining);
+                    
+                    // Calculate energy cost
+                    const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                    const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                    const baseEnergyCost = 1;
+                    const energyCost = Math.max(0.1, baseEnergyCost * (1 + efficiencyBonus));
+                    
+                    console.log('Energy Efficiency Upgrades:', energyEfficiencyUpgrades);
+                    console.log('Efficiency Bonus:', efficiencyBonus);
+                    console.log('Base Energy Cost:', baseEnergyCost);
+                    console.log('Final Energy Cost:', energyCost);
+                    console.log('Can Mine:', gameState.currentEnergy >= energyCost);
+                    
+                    // Calculate energy regen
+                    const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
+                    const energyBurstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
+                    const regenBonus = energyRegenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                    const burstBonus = energyBurstUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                    const baseRegen = 1;
+                    const totalRegen = baseRegen + regenBonus + burstBonus;
+                    
+                    console.log('Energy Regen Upgrades:', energyRegenUpgrades);
+                    console.log('Regen Bonus:', regenBonus);
+                    console.log('Burst Bonus:', burstBonus);
+                    console.log('Total Regen:', totalRegen);
+                  }}
+                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  🔍 ENERGY DEBUG
+                </button>
+                <button
+                  onClick={() => {
+                    // Manually consume energy for testing
+                    const energyCost = 100;
+                    setGameState(prev => {
+                      if (prev.currentEnergy >= energyCost) {
+                        console.log(`Manual energy consumption: -${energyCost} energy`);
+                        setSaveMessage(`Manual energy consumption: -${energyCost} energy`);
+                        setTimeout(() => setSaveMessage(''), 2000);
+                        return {
+                          ...prev,
+                          currentEnergy: prev.currentEnergy - energyCost
+                        };
+                      } else {
+                        console.log(`Cannot consume energy: Not enough (${prev.currentEnergy} < ${energyCost})`);
+                        setSaveMessage(`Cannot consume energy: Not enough (${prev.currentEnergy} < ${energyCost})`);
+                        setTimeout(() => setSaveMessage(''), 2000);
+                        return prev;
+                      }
+                    });
+                  }}
+                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  ⚡ CONSUME 100
+                </button>
+                <button
+                  onClick={() => {
+                    // Manually restore energy for testing
+                    const energyRestore = 1000;
+                    setGameState(prev => {
+                      const newEnergy = Math.min(prev.maxEnergy, prev.currentEnergy + energyRestore);
+                      console.log(`Manual energy restore: +${energyRestore} energy (${prev.currentEnergy} -> ${newEnergy})`);
+                      setSaveMessage(`Manual energy restore: +${energyRestore} energy`);
+                      setTimeout(() => setSaveMessage(''), 2000);
+                      return {
+                        ...prev,
+                        currentEnergy: newEnergy
+                      };
+                    });
+                  }}
+                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  🔋 RESTORE 1000
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('=== ENERGY CONSUMPTION TEST ===');
+                    
+                    // Calculate current energy consumption
+                    const boostedRate = getBoostedMiningRate();
+                    const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                    const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                    const baseEnergyCost = 1;
+                    const miningSpeedMultiplier = Math.max(1, boostedRate / gameState.pointsPerSecond);
+                    const energyCost = Math.max(0.25, baseEnergyCost * miningSpeedMultiplier * (1 + efficiencyBonus));
+                    
+                    console.log('Current mining rate:', boostedRate);
+                    console.log('Mining speed multiplier:', miningSpeedMultiplier);
+                    console.log('Energy cost per 500ms:', energyCost);
+                    console.log('Energy cost per second:', energyCost * 2);
+                    console.log('Current energy:', gameState.currentEnergy);
+                    console.log('Time to empty:', gameState.currentEnergy / (energyCost * 2), 'seconds');
+                    
+                    setSaveMessage(`Energy consumption: ${(energyCost * 2).toFixed(2)}/sec (${(gameState.currentEnergy / (energyCost * 2)).toFixed(1)}s remaining)`);
+                    setTimeout(() => setSaveMessage(''), 4000);
+                  }}
+                  className="text-xs bg-yellow-600 hover:bg-yellow-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  ⏱️ CONSUMPTION TEST
+                </button>
+              </div>
+            </div>
+
+            {/* Offline Rewards */}
+            <div className="mb-4 p-3 bg-purple-900/30 border border-purple-500/20 rounded">
+              <div className="text-purple-200 font-mono font-bold text-xs mb-2">🎁 OFFLINE REWARDS:</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <button
+                  onClick={() => {
+                    console.log('=== OFFLINE REWARD TEST ===');
+                    
+                    // Simulate offline rewards
+                    const testRewards = 5000;
+                    setGameState(prev => ({
+                      ...prev,
+                      unclaimedOfflineRewards: prev.unclaimedOfflineRewards + testRewards,
+                      lastOfflineRewardTime: Date.now()
+                    }));
+                    
+                    setOfflineRewardNotification(`🎁 Test offline rewards added: +${testRewards} points`);
+                    setShowOfflineRewards(true);
+                    
+                    console.log(`Test offline rewards added: +${testRewards} points`);
+                    setSaveMessage(`Test offline rewards added: +${testRewards} points`);
+                    setTimeout(() => setSaveMessage(''), 3000);
+                  }}
+                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  🎁 ADD TEST REWARDS
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('=== CLEAR OFFLINE REWARDS ===');
+                    
+                    setGameState(prev => ({
+                      ...prev,
+                      unclaimedOfflineRewards: 0,
+                      lastOfflineRewardTime: Date.now()
+                    }));
+                    
+                    setShowOfflineRewards(false);
+                    setOfflineRewardNotification('');
+                    
+                    console.log('Offline rewards cleared');
+                    setSaveMessage('Offline rewards cleared');
+                    setTimeout(() => setSaveMessage(''), 3000);
+                  }}
+                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  🗑️ CLEAR REWARDS
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('=== OFFLINE REWARDS INFO ===');
+                    console.log('Unclaimed Rewards:', gameState.unclaimedOfflineRewards);
+                    console.log('Offline Efficiency Bonus:', gameState.offlineEfficiencyBonus);
+                    console.log('Last Offline Time:', new Date(gameState.lastOfflineTime).toLocaleString());
+                    console.log('Last Reward Time:', new Date(gameState.lastOfflineRewardTime).toLocaleString());
+                    setSaveMessage(`Offline: ${gameState.unclaimedOfflineRewards.toLocaleString()} unclaimed, +${(gameState.offlineEfficiencyBonus * 100).toFixed(1)}% bonus`);
+                    setTimeout(() => setSaveMessage(''), 4000);
+                  }}
+                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  📊 REWARDS INFO
+                </button>
+              </div>
+            </div>
+
+            {/* System Info */}
+            <div className="mb-4 p-3 bg-gray-800/30 border border-gray-500/20 rounded">
+              <div className="text-gray-200 font-mono font-bold text-xs mb-2">🔧 SYSTEM INFO:</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <button
+                  onClick={() => {
+                    console.log('=== SAVE STATUS ===');
+                    console.log('Current points:', gameState.divinePoints);
+                    console.log('Save status:', lastSaveStatus);
+                    console.log('Save message:', saveMessage);
+                    console.log('Last save time:', new Date(gameState.lastSaveTime).toLocaleString());
+                  }}
+                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  💾 SAVE STATUS
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('=== LOCALSTORAGE INSPECTION ===');
+                    console.log('SAVE_KEY:', localStorage.getItem(SAVE_KEY));
+                    console.log('BACKUP_KEY:', localStorage.getItem(BACKUP_KEY));
+                    console.log('HIGH_SCORE_KEY:', localStorage.getItem(HIGH_SCORE_KEY));
+                    console.log('DIVINE_POINTS_KEY:', localStorage.getItem(DIVINE_POINTS_KEY));
+                    console.log('TOTAL_EARNED_KEY:', localStorage.getItem(TOTAL_EARNED_KEY));
+                    console.log('SESSION_KEY:', localStorage.getItem(SESSION_KEY));
+                    console.log('Upgrades:', localStorage.getItem('divineMiningUpgrades'));
+                    console.log('Prestige Multiplier:', localStorage.getItem('divineMiningPrestigeMultiplier'));
+                    console.log('All localStorage keys:', Object.keys(localStorage));
+                    console.log('Current game state:', gameState);
+                    console.log('Has loaded saved data:', hasLoadedSavedData);
+                    
+                    // Try to parse saved data
+                    try {
+                      const saved = localStorage.getItem(SAVE_KEY);
+                      if (saved) {
+                        const parsed = JSON.parse(saved);
+                        console.log('Parsed save data:', parsed);
+                        console.log('Validation result:', validateGameState(parsed));
+                      }
+                      
+                      const sessionData = localStorage.getItem(SESSION_KEY);
+                      if (sessionData) {
+                        const parsedSession = JSON.parse(sessionData);
+                        console.log('Parsed session data:', parsedSession);
+                      }
+                    } catch (error) {
+                      console.error('Error parsing saved data:', error);
+                    }
+                  }}
+                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  🔍 INSPECT LS
                 </button>
                 <button
                   onClick={() => {
@@ -1992,161 +3080,145 @@ export const DivineMiningGame: React.FC = () => {
                     setSaveMessage('No valid saved data found');
                     setTimeout(() => setSaveMessage(''), 3000);
                   }}
-                  className="text-xs bg-green-500 px-2 py-1 rounded"
+                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  MANUAL LOAD
+                  📥 MANUAL LOAD
                 </button>
                 <button
                   onClick={() => {
-                    console.log('=== SAVE STATUS ===');
-                    console.log('Current points:', gameState.divinePoints);
-                    console.log('Save status:', lastSaveStatus);
-                    console.log('Save message:', saveMessage);
-                    console.log('Last save time:', new Date(gameState.lastSaveTime).toLocaleString());
+                    console.log('=== GAME STATE DUMP ===');
+                    console.log('Full Game State:', gameState);
+                    console.log('Upgrades:', upgrades);
+                    console.log('Achievements:', achievements);
+                    console.log('Tutorial State:', tutorialState);
+                    console.log('Active Boosts:', activeBoosts);
+                    setSaveMessage('Game state dumped to console');
+                    setTimeout(() => setSaveMessage(''), 3000);
                   }}
-                  className="text-xs bg-blue-500 px-2 py-1 rounded"
+                  className="text-xs bg-gray-600 hover:bg-gray-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  SAVE STATUS
+                  📋 STATE DUMP
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="p-3 bg-red-900/30 border border-red-500/20 rounded">
+              <div className="text-red-200 font-mono font-bold text-xs mb-2">⚠️ QUICK ACTIONS:</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <button
+                  onClick={resetGame}
+                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  🗑️ RESET GAME
+                </button>
+                <button
+                  onClick={prestige}
+                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  ⭐ PRESTIGE
                 </button>
                 <button
                   onClick={() => {
-                    console.log('=== LOCALSTORAGE INSPECTION ===');
-                    console.log('SAVE_KEY:', localStorage.getItem(SAVE_KEY));
-                    console.log('BACKUP_KEY:', localStorage.getItem(BACKUP_KEY));
-                    console.log('HIGH_SCORE_KEY:', localStorage.getItem(HIGH_SCORE_KEY));
-                    console.log('DIVINE_POINTS_KEY:', localStorage.getItem(DIVINE_POINTS_KEY));
-                    console.log('TOTAL_EARNED_KEY:', localStorage.getItem(TOTAL_EARNED_KEY));
-                    console.log('SESSION_KEY:', localStorage.getItem(SESSION_KEY));
-                    console.log('Upgrades:', localStorage.getItem('divineMiningUpgrades'));
-                    console.log('Prestige Multiplier:', localStorage.getItem('divineMiningPrestigeMultiplier'));
-                    console.log('All localStorage keys:', Object.keys(localStorage));
-                    console.log('Current game state:', gameState);
-                    console.log('Has loaded saved data:', hasLoadedSavedData);
-                    
-                    // Try to parse saved data
-                    try {
-                      const saved = localStorage.getItem(SAVE_KEY);
-                      if (saved) {
-                        const parsed = JSON.parse(saved);
-                        console.log('Parsed save data:', parsed);
-                        console.log('Validation result:', validateGameState(parsed));
-                      }
-                      
-                      const sessionData = localStorage.getItem(SESSION_KEY);
-                      if (sessionData) {
-                        const parsedSession = JSON.parse(sessionData);
-                        console.log('Parsed session data:', parsedSession);
-                      }
-                    } catch (error) {
-                      console.error('Error parsing saved data:', error);
-                    }
+                    // Add 100,000 points for testing
+                    setGameState(prev => ({
+                      ...prev,
+                      divinePoints: prev.divinePoints + 100000,
+                      totalPointsEarned: prev.totalPointsEarned + 100000
+                    }));
+                    setSaveMessage('Added 100,000 points for testing');
+                    setTimeout(() => setSaveMessage(''), 3000);
                   }}
-                  className="text-xs bg-purple-500 px-2 py-1 rounded"
+                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  INSPECT
+                  💰 ADD 100K POINTS
                 </button>
                 <button
                   onClick={() => {
-                    console.log('=== ENERGY DEBUG ===');
-                    console.log('Current Energy:', gameState.currentEnergy);
-                    console.log('Max Energy:', gameState.maxEnergy);
-                    console.log('Is Mining:', gameState.isMining);
-                    
-                    // Calculate energy cost
-                    const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
-                    const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                    const baseEnergyCost = 1;
-                    const energyCost = Math.max(0.1, baseEnergyCost * (1 + efficiencyBonus));
-                    
-                    console.log('Energy Efficiency Upgrades:', energyEfficiencyUpgrades);
-                    console.log('Efficiency Bonus:', efficiencyBonus);
-                    console.log('Base Energy Cost:', baseEnergyCost);
-                    console.log('Final Energy Cost:', energyCost);
-                    console.log('Can Mine:', gameState.currentEnergy >= energyCost);
-                    
-                    // Calculate energy regen
-                    const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
-                    const regenBonus = energyRegenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                    const baseRegen = 1;
-                    const totalRegen = baseRegen + regenBonus;
-                    
-                    console.log('Energy Regen Upgrades:', energyRegenUpgrades);
-                    console.log('Regen Bonus:', regenBonus);
-                    console.log('Total Regen:', totalRegen);
+                    // Add 1,000,000 points for testing
+                    setGameState(prev => ({
+                      ...prev,
+                      divinePoints: prev.divinePoints + 1000000,
+                      totalPointsEarned: prev.totalPointsEarned + 1000000
+                    }));
+                    setSaveMessage('Added 1,000,000 points for testing');
+                    setTimeout(() => setSaveMessage(''), 3000);
                   }}
-                  className="text-xs bg-green-500 px-2 py-1 rounded"
+                  className="text-xs bg-yellow-600 hover:bg-yellow-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  ENERGY DEBUG
+                  💎 ADD 1M POINTS
                 </button>
                 <button
                   onClick={() => {
-                    // Manually consume energy for testing
-                    const energyCost = 100;
-                    setGameState(prev => {
-                      if (prev.currentEnergy >= energyCost) {
-                        console.log(`Manual energy consumption: -${energyCost} energy`);
-                        setSaveMessage(`Manual energy consumption: -${energyCost} energy`);
-                        setTimeout(() => setSaveMessage(''), 2000);
-                        return {
-                          ...prev,
-                          currentEnergy: prev.currentEnergy - energyCost
-                        };
-                      } else {
-                        console.log(`Cannot consume energy: Not enough (${prev.currentEnergy} < ${energyCost})`);
-                        setSaveMessage(`Cannot consume energy: Not enough (${prev.currentEnergy} < ${energyCost})`);
-                        setTimeout(() => setSaveMessage(''), 2000);
-                        return prev;
-                      }
-                    });
+                    // Max out all upgrades for testing
+                    const maxedUpgrades = upgrades.map(upgrade => ({
+                      ...upgrade,
+                      level: 10 // Set all upgrades to level 10
+                    }));
+                    setUpgrades(maxedUpgrades);
+                    localStorage.setItem('divineMiningUpgrades', JSON.stringify(maxedUpgrades));
+                    setSaveMessage('All upgrades maxed to level 10 for testing');
+                    setTimeout(() => setSaveMessage(''), 3000);
                   }}
-                  className="text-xs bg-red-500 px-2 py-1 rounded"
+                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  CONSUME 100 ENERGY
+                  ⚡ MAX UPGRADES
+                </button>
+              </div>
+            </div>
+
+            {/* Performance Monitor */}
+            <div className="mt-4 p-3 bg-indigo-900/30 border border-indigo-500/20 rounded">
+              <div className="text-indigo-200 font-mono font-bold text-xs mb-2">📈 PERFORMANCE MONITOR:</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <button
+                  onClick={() => {
+                    console.log('=== PERFORMANCE METRICS ===');
+                    console.log('Memory Usage:', (performance as any).memory ? {
+                      used: Math.round((performance as any).memory.usedJSHeapSize / 1024 / 1024) + 'MB',
+                      total: Math.round((performance as any).memory.totalJSHeapSize / 1024 / 1024) + 'MB',
+                      limit: Math.round((performance as any).memory.jsHeapSizeLimit / 1024 / 1024) + 'MB'
+                    } : 'Not available');
+                    console.log('Navigation Timing:', performance.getEntriesByType('navigation')[0]);
+                    console.log('Game State Size:', JSON.stringify(gameState).length, 'bytes');
+                    console.log('Upgrades Size:', JSON.stringify(upgrades).length, 'bytes');
+                    setSaveMessage('Performance metrics logged to console');
+                    setTimeout(() => setSaveMessage(''), 3000);
+                  }}
+                  className="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  📊 PERFORMANCE
                 </button>
                 <button
                   onClick={() => {
-                    // Manually restore energy for testing
-                    const energyRestore = 1000;
-                    setGameState(prev => {
-                      const newEnergy = Math.min(prev.maxEnergy, prev.currentEnergy + energyRestore);
-                      console.log(`Manual energy restore: +${energyRestore} energy (${prev.currentEnergy} -> ${newEnergy})`);
-                      setSaveMessage(`Manual energy restore: +${energyRestore} energy`);
-                      setTimeout(() => setSaveMessage(''), 2000);
-                      return {
-                        ...prev,
-                        currentEnergy: newEnergy
-                      };
-                    });
+                    console.log('=== CLEAR CONSOLE ===');
+                    console.clear();
+                    setSaveMessage('Console cleared');
+                    setTimeout(() => setSaveMessage(''), 2000);
                   }}
-                  className="text-xs bg-blue-500 px-2 py-1 rounded"
+                  className="text-xs bg-gray-600 hover:bg-gray-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  RESTORE 1000 ENERGY
+                  🧹 CLEAR CONSOLE
                 </button>
                 <button
                   onClick={() => {
-                    console.log('=== ENERGY CONSUMPTION TEST ===');
-                    
-                    // Calculate current energy consumption
-                    const boostedRate = getBoostedMiningRate();
-                    const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
-                    const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                    const baseEnergyCost = 1;
-                    const miningSpeedMultiplier = Math.max(1, boostedRate / gameState.pointsPerSecond);
-                    const energyCost = Math.max(0.25, baseEnergyCost * miningSpeedMultiplier * (1 + efficiencyBonus));
-                    
-                    console.log('Current mining rate:', boostedRate);
-                    console.log('Mining speed multiplier:', miningSpeedMultiplier);
-                    console.log('Energy cost per 500ms:', energyCost);
-                    console.log('Energy cost per second:', energyCost * 2);
-                    console.log('Current energy:', gameState.currentEnergy);
-                    console.log('Time to empty:', gameState.currentEnergy / (energyCost * 2), 'seconds');
-                    
-                    setSaveMessage(`Energy consumption: ${(energyCost * 2).toFixed(2)}/sec (${(gameState.currentEnergy / (energyCost * 2)).toFixed(1)}s remaining)`);
-                    setTimeout(() => setSaveMessage(''), 4000);
+                    console.log('=== RELOAD PAGE ===');
+                    window.location.reload();
                   }}
-                  className="text-xs bg-yellow-500 px-2 py-1 rounded"
+                  className="text-xs bg-orange-600 hover:bg-orange-500 px-3 py-2 rounded transition-colors font-mono"
                 >
-                  ENERGY CONSUMPTION TEST
+                  🔄 RELOAD PAGE
+                </button>
+                <button
+                  onClick={() => {
+                    console.log('=== TOGGLE MINING ===');
+                    toggleMining();
+                    setSaveMessage(`Mining ${gameState.isMining ? 'stopped' : 'started'}`);
+                    setTimeout(() => setSaveMessage(''), 2000);
+                  }}
+                  className="text-xs bg-cyan-600 hover:bg-cyan-500 px-3 py-2 rounded transition-colors font-mono"
+                >
+                  ⚡ TOGGLE MINING
                 </button>
               </div>
             </div>
@@ -2155,7 +3227,7 @@ export const DivineMiningGame: React.FC = () => {
         
         <div className="space-y-3">
           {upgrades.map((upgrade) => (
-            <div key={upgrade.id} className="bg-gray-800/50 border border-cyan-500/30 rounded-lg p-3">
+            <div key={upgrade.id} className={`bg-gray-800/50 border border-cyan-500/30 rounded-lg p-3 upgrade-${upgrade.id}`}>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-cyan-300 font-mono font-bold text-sm tracking-wide">{upgrade.name}</div>
@@ -2181,7 +3253,7 @@ export const DivineMiningGame: React.FC = () => {
 
       {/* Achievements */}
       {unlockedAchievements.length > 0 && (
-        <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+        <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] achievements-section">
           {/* Futuristic Corner Accents */}
           <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
           <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
@@ -2212,7 +3284,7 @@ export const DivineMiningGame: React.FC = () => {
       )}
 
       {/* Statistics */}
-      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] statistics-section">
         {/* Futuristic Corner Accents */}
         <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
         <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
@@ -2271,9 +3343,23 @@ export const DivineMiningGame: React.FC = () => {
             <div className="text-orange-300 font-mono font-bold text-lg">{gameState.lastDailyReset}</div>
             <div className="text-gray-400 font-mono text-xs">Daily Reset</div>
           </div>
+          <div className="text-center stats-card">
+            <div className="text-purple-300 font-mono font-bold text-lg">{formatNumber(gameState.unclaimedOfflineRewards)}</div>
+            <div className="text-gray-400 font-mono text-xs">Unclaimed Rewards</div>
+          </div>
+          <div className="text-center stats-card">
+            <div className="text-green-300 font-mono font-bold text-lg">{formatNumber(gameState.maxEnergy)}</div>
+            <div className="text-gray-400 font-mono text-xs">Max Energy</div>
+          </div>
+          <div className="text-center stats-card">
+            <div className="text-blue-300 font-mono font-bold text-lg">+{(0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0)).toFixed(1)}/s</div>
+            <div className="text-gray-400 font-mono text-xs">Energy Regen</div>
+          </div>
         </div>
       </div>
-    </div>
 
+      {/* Tutorial Overlay */}
+      <TutorialOverlay />
+    </div>
   );
 }; 

@@ -1,0 +1,261 @@
+/* ReferralSystem.css - Futuristic styling for referral system */
+
+.referral-system {
+  /* Base styles inherited from parent */
+}
+
+/* Prevent layout shifts */
+.referral-system * {
+  box-sizing: border-box;
+}
+
+/* Smooth transitions for all elements */
+.referral-system * {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Prevent text selection during animations */
+.referral-system {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Stable container heights */
+.referral-system .space-y-2 > * {
+  min-height: 60px;
+}
+
+.referral-system .space-y-3 > * {
+  min-height: 80px;
+}
+
+/* Custom scrollbar for referral lists */
+.referral-system .game-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.referral-system .game-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+}
+
+.referral-system .game-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #00ffff, #0080ff);
+  border-radius: 3px;
+}
+
+.referral-system .game-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #00ffff, #0066cc);
+}
+
+/* Animation for referral code display */
+@keyframes referralCodeGlow {
+  0%, 100% {
+    text-shadow: 0 0 10px rgba(147, 51, 234, 0.5);
+  }
+  50% {
+    text-shadow: 0 0 20px rgba(147, 51, 234, 0.8), 0 0 30px rgba(147, 51, 234, 0.6);
+  }
+}
+
+.referral-code {
+  animation: referralCodeGlow 2s ease-in-out infinite;
+}
+
+/* Progress bar animation */
+@keyframes progressFill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: var(--progress-width);
+  }
+}
+
+.progress-bar {
+  animation: progressFill 1s ease-out;
+}
+
+/* Referral card hover effects */
+.referral-card {
+  transition: all 0.3s ease;
+}
+
+.referral-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 255, 255, 0.2);
+}
+
+/* Reward tier animations */
+.reward-tier {
+  transition: all 0.3s ease;
+}
+
+.reward-tier:hover {
+  transform: scale(1.02);
+}
+
+.reward-tier.unlocked {
+  animation: unlockPulse 0.6s ease-out;
+}
+
+@keyframes unlockPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Share button animations */
+.share-button {
+  transition: all 0.3s ease;
+}
+
+.share-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(0, 255, 255, 0.3);
+}
+
+/* Copy feedback animation */
+.copy-feedback {
+  animation: copySuccess 0.5s ease-out;
+}
+
+@keyframes copySuccess {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* QR code container */
+.qr-container {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Social share buttons */
+.social-share-btn {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.social-share-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s ease;
+}
+
+.social-share-btn:hover::before {
+  left: 100%;
+}
+
+/* Level indicator glow */
+.level-indicator {
+  position: relative;
+}
+
+.level-indicator::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(45deg, #00ffff, #0080ff, #8000ff, #ff0080);
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.level-indicator:hover::after {
+  opacity: 1;
+}
+
+/* Referral stats counter animation */
+.stats-counter {
+  animation: countUp 1s ease-out;
+}
+
+@keyframes countUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Modal backdrop blur */
+.modal-backdrop {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .referral-system .grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .referral-system .flex {
+    flex-direction: column;
+  }
+  
+  .referral-system .text-2xl {
+    font-size: 1.25rem;
+  }
+  
+  .referral-system .text-lg {
+    font-size: 1rem;
+  }
+}
+
+/* Dark mode enhancements */
+@media (prefers-color-scheme: dark) {
+  .referral-system {
+    color-scheme: dark;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .referral-system .border {
+    border-width: 2px;
+  }
+  
+  .referral-system .text-gray-400 {
+    color: #9ca3af;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .referral-system * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+} 
