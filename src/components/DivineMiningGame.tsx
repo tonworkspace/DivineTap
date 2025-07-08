@@ -81,90 +81,90 @@ const BACKUP_INTERVAL = 300000; // 5 minutes
 const OFFLINE_EFFICIENCY_CAP = 14; // 14 days max offline earnings
 const OFFLINE_EFFICIENCY_BONUS = 0.1; // 10% bonus per day offline (max 140%)
 
-// Enhanced Notification System Interfaces
-interface Notification {
-  id: string;
-  type: 'success' | 'error' | 'warning' | 'info' | 'achievement' | 'milestone' | 'offline' | 'energy' | 'upgrade' | 'system' | 'progress' | 'reward' | 'prestige' | 'tutorial';
-  title: string;
-  message: string;
-  description?: string;
-  icon?: string;
-  duration?: number;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  actions?: NotificationAction[];
-  timestamp: number;
-  read: boolean;
-  dismissed: boolean;
-  position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center' | 'center' | 'smart';
-  animation?: 'slide-in' | 'fade-in' | 'bounce-in' | 'scale-in' | 'slide-up' | 'slide-down' | 'zoom-in' | 'flip-in';
-  sound?: boolean;
-  vibration?: boolean;
-  autoDismiss?: boolean;
-  persistent?: boolean;
-  category?: string;
-  metadata?: Record<string, any>;
-  progress?: {
-    current: number;
-    max: number;
-    label?: string;
-    color?: string;
-  };
-  stackable?: boolean;
-  groupId?: string;
-  expiresAt?: number;
-}
+// // Enhanced Notification System Interfaces
+// interface Notification {
+//   id: string;
+//   type: 'success' | 'error' | 'warning' | 'info' | 'achievement' | 'milestone' | 'offline' | 'energy' | 'upgrade' | 'system' | 'progress' | 'reward' | 'prestige' | 'tutorial';
+//   title: string;
+//   message: string;
+//   description?: string;
+//   icon?: string;
+//   duration?: number;
+//   priority: 'low' | 'medium' | 'high' | 'critical';
+//   actions?: NotificationAction[];
+//   timestamp: number;
+//   read: boolean;
+//   dismissed: boolean;
+//   position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center' | 'center' | 'smart';
+//   animation?: 'slide-in' | 'fade-in' | 'bounce-in' | 'scale-in' | 'slide-up' | 'slide-down' | 'zoom-in' | 'flip-in';
+//   sound?: boolean;
+//   vibration?: boolean;
+//   autoDismiss?: boolean;
+//   persistent?: boolean;
+//   category?: string;
+//   metadata?: Record<string, any>;
+//   progress?: {
+//     current: number;
+//     max: number;
+//     label?: string;
+//     color?: string;
+//   };
+//   stackable?: boolean;
+//   groupId?: string;
+//   expiresAt?: number;
+// }
 
-interface NotificationAction {
-  label: string;
-  action: () => void;
-  type: 'primary' | 'secondary' | 'danger' | 'success' | 'warning';
-  icon?: string;
-  disabled?: boolean;
-  loading?: boolean;
-}
+// interface NotificationAction {
+//   label: string;
+//   action: () => void;
+//   type: 'primary' | 'secondary' | 'danger' | 'success' | 'warning';
+//   icon?: string;
+//   disabled?: boolean;
+//   loading?: boolean;
+// }
 
-interface NotificationQueue {
-  notifications: Notification[];
-  maxNotifications: number;
-  maxDuration: number;
-  history: Notification[];
-  maxHistory: number;
-}
+// interface NotificationQueue {
+//   notifications: Notification[];
+//   maxNotifications: number;
+//   maxDuration: number;
+//   history: Notification[];
+//   maxHistory: number;
+// }
 
-interface NotificationPreferences {
-  soundEnabled: boolean;
-  vibrationEnabled: boolean;
-  autoDismiss: boolean;
-  position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center' | 'smart';
-  maxNotifications: number;
-  showNotifications: boolean;
-  categories: {
-    achievement: boolean;
-    milestone: boolean;
-    system: boolean;
-    energy: boolean;
-    upgrade: boolean;
-    offline: boolean;
-    progress: boolean;
-    tutorial: boolean;
-  };
-  animationSpeed: 'slow' | 'normal' | 'fast';
-  theme: 'dark' | 'light' | 'auto';
-}
+// interface NotificationPreferences {
+//   soundEnabled: boolean;
+//   vibrationEnabled: boolean;
+//   autoDismiss: boolean;
+//   position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center' | 'smart';
+//   maxNotifications: number;
+//   showNotifications: boolean;
+//   categories: {
+//     achievement: boolean;
+//     milestone: boolean;
+//     system: boolean;
+//     energy: boolean;
+//     upgrade: boolean;
+//     offline: boolean;
+//     progress: boolean;
+//     tutorial: boolean;
+//   };
+//   animationSpeed: 'slow' | 'normal' | 'fast';
+//   theme: 'dark' | 'light' | 'auto';
+// }
 
 export const DivineMiningGame: React.FC = () => {
-  const { setPoints, addPoints, gems: userGems, activeBoosts } = useGameContext();
+  const { setPoints, activeBoosts } = useGameContext();
   const {
     showAchievementNotification,
     showMilestoneNotification,
-    showEnergyWarningNotification,
+    // showEnergyWarningNotification,
     showUpgradeNotification,
     showSystemNotification,
     showOfflineRewardsNotification,
-    showProgressNotification,
-    showRewardNotification,
-    showPrestigeNotification,
-    showTutorialNotification
+    // showProgressNotification,
+    // showRewardNotification,
+    // showPrestigeNotification,
+    // showTutorialNotification
   } = useNotificationSystem();
   
   const [showHelp, setShowHelp] = useState(false);
@@ -284,7 +284,7 @@ export const DivineMiningGame: React.FC = () => {
       id: 'efficiency-expert',
       name: 'Efficiency Expert',
       description: 'Reduce energy cost by 50%',
-      condition: (state) => {
+      condition: () => {
         const efficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
         const totalEfficiency = efficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
         return totalEfficiency <= -0.5;
@@ -295,7 +295,7 @@ export const DivineMiningGame: React.FC = () => {
       id: 'regen-master',
       name: 'Regeneration Master',
       description: 'Reach 5 energy per second regeneration',
-      condition: (state) => {
+      condition: () => {
         const regenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
         const totalRegen = regenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
         return (1 + totalRegen) >= 5;
@@ -313,7 +313,7 @@ export const DivineMiningGame: React.FC = () => {
       id: 'energy-sustainer',
       name: 'Energy Sustainer',
       description: 'Reduce energy cost by 80%',
-      condition: (state) => {
+      condition: () => {
         const efficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
         const sustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
         const totalEfficiency = efficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
@@ -326,7 +326,7 @@ export const DivineMiningGame: React.FC = () => {
       id: 'divine-resonator',
       name: 'Divine Resonator',
       description: 'Max out Divine Resonance upgrade',
-      condition: (state) => {
+      condition: () => {
         const resonanceUpgrades = upgrades.filter(u => u.id === 'divine-resonance');
         return resonanceUpgrades.some(u => u.level >= 5);
       },
@@ -353,7 +353,7 @@ export const DivineMiningGame: React.FC = () => {
       id: 'energy-conservationist',
       name: 'Energy Conservationist',
       description: 'Reduce energy cost by 60%',
-      condition: (state) => {
+      condition: () => {
         const efficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
         const sustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
         const masteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
@@ -375,7 +375,7 @@ export const DivineMiningGame: React.FC = () => {
       id: 'regeneration-master',
       name: 'Regeneration Master',
       description: 'Reach 10 energy per second regeneration',
-      condition: (state) => {
+      condition: () => {
         const regenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
         const burstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
         const totalRegen = regenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
@@ -388,7 +388,7 @@ export const DivineMiningGame: React.FC = () => {
       id: 'energy-efficiency-god',
       name: 'Energy Efficiency God',
       description: 'Reduce energy cost by 90%',
-      condition: (state) => {
+      condition: () => {
         const efficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
         const sustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
         const masteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
@@ -403,7 +403,7 @@ export const DivineMiningGame: React.FC = () => {
       id: 'auto-miner-master',
       name: 'Auto-Miner Master',
       description: 'Purchase Auto Mining upgrade',
-      condition: (state) => {
+      condition: () => {
         const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
         return autoMiningUpgrades.some(u => u.level > 0);
       },
@@ -1859,25 +1859,25 @@ export const DivineMiningGame: React.FC = () => {
     input.click();
   }, []);
 
-  // Debug function to check localStorage state
-  const debugLocalStorage = useCallback(() => {
-    console.log('=== LOCALSTORAGE DEBUG ===');
-    console.log('Main save:', localStorage.getItem(SAVE_KEY));
-    console.log('Backup save:', localStorage.getItem(BACKUP_KEY));
-    console.log('Upgrades:', localStorage.getItem('divineMiningUpgrades'));
+  // // Debug function to check localStorage state
+  // const debugLocalStorage = useCallback(() => {
+  //   console.log('=== LOCALSTORAGE DEBUG ===');
+  //   console.log('Main save:', localStorage.getItem(SAVE_KEY));
+  //   console.log('Backup save:', localStorage.getItem(BACKUP_KEY));
+  //   console.log('Upgrades:', localStorage.getItem('divineMiningUpgrades'));
     
-    try {
-      const mainSave = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
-      const backupSave = JSON.parse(localStorage.getItem(BACKUP_KEY) || 'null');
-      const upgrades = JSON.parse(localStorage.getItem('divineMiningUpgrades') || 'null');
+  //   try {
+  //     const mainSave = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+  //     const backupSave = JSON.parse(localStorage.getItem(BACKUP_KEY) || 'null');
+  //     const upgrades = JSON.parse(localStorage.getItem('divineMiningUpgrades') || 'null');
       
-      console.log('Parsed main save:', mainSave);
-      console.log('Parsed backup save:', backupSave);
-      console.log('Parsed upgrades:', upgrades);
-    } catch (error) {
-      console.error('Error parsing localStorage data:', error);
-    }
-  }, []);
+  //     console.log('Parsed main save:', mainSave);
+  //     console.log('Parsed backup save:', backupSave);
+  //     console.log('Parsed upgrades:', upgrades);
+  //   } catch (error) {
+  //     console.error('Error parsing localStorage data:', error);
+  //   }
+  // }, []);
 
   // Manual save function for debugging
   const manualSave = useCallback(() => {
@@ -2110,7 +2110,7 @@ export const DivineMiningGame: React.FC = () => {
   }, [gameState.currentEnergy, gameState.isMining, upgrades, getEnhancedMiningRate]);
 
     return (
-    <div className="flex-1 p-4 space-y-2 overflow-y-auto game-scrollbar">
+    <div className="flex-1 p-custom space-y-2 overflow-y-auto game-scrollbar">
       
       {/* Test Notification Button - REMOVED FOR PRODUCTION */}
       {/* <div className="mb-4 space-y-2">
@@ -3029,10 +3029,10 @@ export const DivineMiningGame: React.FC = () => {
                         const parsed = JSON.parse(saved);
                         if (validateGameState(parsed)) {
                           console.log('Manual load from main save successful:', parsed);
-                          setGameState(prev => ({
-                            ...parsed,
-                            lastSaveTime: Date.now()
-                          }));
+                          // setGameState(prev => ({
+                          //   ...parsed,
+                          //   lastSaveTime: Date.now()
+                          // }));
                           setSaveMessage('Manual load successful!');
                           setTimeout(() => setSaveMessage(''), 3000);
                           return;

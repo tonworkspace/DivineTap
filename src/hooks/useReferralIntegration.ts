@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { retrieveLaunchParams } from '@telegram-apps/sdk-react';
 
 interface ReferralData {
   code: string;
@@ -68,47 +69,83 @@ export const useReferralIntegration = () => {
     }
   }, []);
 
-  // Check if user was referred by someone
-  const checkReferral = useCallback(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const refCode = urlParams.get('ref');
-    
-    if (refCode && refCode !== referralCode) {
-      // User was referred by someone
-      const referrerData = localStorage.getItem(`referral_${refCode}`);
-      if (referrerData) {
-        try {
-          const referrer = JSON.parse(referrerData);
-          // Update referrer's data
-          const updatedReferrer = {
-            ...referrer,
-            totalReferrals: referrer.totalReferrals + 1,
-            activeReferrals: referrer.activeReferrals + 1,
-            referrals: [
-              ...referrer.referrals,
-              {
-                id: Date.now().toString(),
-                username: `User_${Date.now().toString(36)}`,
-                joinedAt: Date.now(),
-                isActive: true,
-                pointsEarned: 0,
-                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${Date.now()}`
+  // Process Telegram start parameter for referral tracking
+  const processStartParameter = useCallback(() => {
+    try {
+      const launchParams = retrieveLaunchParams();
+      const startParam = launchParams.startParam;
+      
+      console.log('Processing start parameter:', startParam);
+      
+      // Check if start parameter exists and is not empty
+      if (startParam && startParam.length > 0) {
+        // Validate start parameter format (alphanumeric, underscore, hyphen, max 512 chars)
+        const startParamRegex = /^[\w-]{1,512}$/;
+        if (startParamRegex.test(startParam)) {
+          // Check if this user was already referred by this code
+          const alreadyReferred = localStorage.getItem('referredBy');
+          if (alreadyReferred === startParam) {
+            console.log('User already referred by this code:', startParam);
+            return;
+          }
+          
+          // User was referred by someone
+          const referrerData = localStorage.getItem(`referral_${startParam}`);
+          if (referrerData) {
+            try {
+              const referrer = JSON.parse(referrerData);
+              // Update referrer's data
+              const updatedReferrer = {
+                ...referrer,
+                totalReferrals: referrer.totalReferrals + 1,
+                activeReferrals: referrer.activeReferrals + 1,
+                referrals: [
+                  ...referrer.referrals,
+                  {
+                    id: Date.now().toString(),
+                    username: `User_${Date.now().toString(36)}`,
+                    joinedAt: Date.now(),
+                    isActive: true,
+                    pointsEarned: 0,
+                    avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${Date.now()}`
+                  }
+                ]
+              };
+              
+              localStorage.setItem(`referral_${startParam}`, JSON.stringify(updatedReferrer));
+              
+              // Store that this user was referred
+              localStorage.setItem('referredBy', startParam);
+              
+              console.log(`User referred by: ${startParam}`);
+              
+              // You could also trigger a notification or reward here
+              // For example, give the referrer some bonus points
+              if (updatedReferrer.rewards) {
+                updatedReferrer.rewards.points += 50; // Bonus for successful referral
+                localStorage.setItem(`referral_${startParam}`, JSON.stringify(updatedReferrer));
               }
-            ]
-          };
-          
-          localStorage.setItem(`referral_${refCode}`, JSON.stringify(updatedReferrer));
-          
-          // Store that this user was referred
-          localStorage.setItem('referredBy', refCode);
-          
-          console.log(`User referred by: ${refCode}`);
-        } catch (error) {
-          console.error('Error processing referral:', error);
+            } catch (error) {
+              console.error('Error processing referral:', error);
+            }
+          } else {
+            // Referrer data doesn't exist, but still mark as referred
+            localStorage.setItem('referredBy', startParam);
+            console.log(`User referred by: ${startParam} (referrer data not found)`);
+          }
+        } else {
+          console.log('Invalid start parameter format:', startParam);
         }
       }
+    } catch (error) {
+      console.error('Error processing start parameter:', error);
     }
-  }, [referralCode]);
+  }, []);
+
+  // Check if user was referred by someone using Telegram start parameter
+  const checkReferral = useCallback(() => {
+    processStartParameter();
+  }, [processStartParameter]);
 
   // Claim referral reward
   const claimReferralReward = useCallback((rewardLevel: number) => {
@@ -173,6 +210,12 @@ export const useReferralIntegration = () => {
     };
   }, [referralData]);
 
+  // Generate Telegram referral link
+  const generateTelegramReferralLink = useCallback((code?: string) => {
+    const codeToUse = code || referralCode;
+    return `https://t.me/DivineTaps_bot/mine?startapp=${codeToUse}`;
+  }, [referralCode]);
+
   // Initialize referral system
   useEffect(() => {
     loadReferralData();
@@ -183,9 +226,11 @@ export const useReferralIntegration = () => {
     referralCode,
     referralData,
     generateReferralCode,
+    generateTelegramReferralLink,
     claimReferralReward,
     trackReferralActivity,
     getReferralStats,
-    saveReferralData
+    saveReferralData,
+    processStartParameter
   };
 }; 

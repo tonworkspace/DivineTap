@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { GiShare, GiPresent, GiPerson, GiCoins, GiGems, GiCrown, GiTrophy } from 'react-icons/gi';
-import { BiCopy, BiLink, BiCode } from 'react-icons/bi';
+import { GiShare, GiPresent, GiPerson } from 'react-icons/gi';
+import { BiLink, } from 'react-icons/bi';
 import { useGameContext } from '@/contexts/GameContext';
 import { useReferralIntegration } from '@/hooks/useReferralIntegration';
+import { retrieveLaunchParams } from '@telegram-apps/sdk-react';
 import './ReferralSystem.css';
 
 interface ReferralData {
@@ -87,8 +88,8 @@ const REFERRAL_REWARDS: ReferralReward[] = [
 ];
 
 export const ReferralSystem: React.FC = () => {
-  const { points: userPoints, gems: userGems, addPoints, addGems } = useGameContext();
-  const { referralCode, referralData, generateReferralCode, claimReferralReward } = useReferralIntegration();
+  const { addPoints, addGems } = useGameContext();
+  const { generateReferralCode, generateTelegramReferralLink } = useReferralIntegration();
   
   const [referralInfo, setReferralInfo] = useState<ReferralData>({
     code: '',
@@ -106,6 +107,11 @@ export const ReferralSystem: React.FC = () => {
   const [rewardMessage, setRewardMessage] = useState('');
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'referrals' | 'rewards' | 'share'>('referrals');
+  const [showDebug, setShowDebug] = useState(false);
+
+  // Get current start parameter for debugging
+  const currentStartParam = retrieveLaunchParams().startParam;
+  const referredBy = localStorage.getItem('referredBy');
 
   // Load referral data
   useEffect(() => {
@@ -193,7 +199,7 @@ export const ReferralSystem: React.FC = () => {
 
   // Share referral link
   const shareReferral = useCallback(() => {
-    const referralLink = `${window.location.origin}?ref=${referralInfo.code}`;
+    const referralLink = `https://t.me/DivineTaps_bot/mine?startapp=${referralInfo.code}`;
     
     if (navigator.share) {
       navigator.share({
@@ -309,6 +315,37 @@ export const ReferralSystem: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {/* Debug Section (only in development) */}
+      {import.meta.env.DEV && (
+        <div className="relative bg-black/40 backdrop-blur-xl border border-orange-500/30 rounded-xl p-3 shadow-[0_0_20px_rgba(251,146,60,0.1)]">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-orange-400 font-mono font-bold text-sm tracking-wider">DEBUG INFO</div>
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className="text-orange-300 text-xs font-mono tracking-wider"
+            >
+              {showDebug ? 'HIDE' : 'SHOW'}
+            </button>
+          </div>
+          {showDebug && (
+            <div className="space-y-2 text-xs font-mono tracking-wider">
+              <div className="text-orange-300">
+                <span className="text-orange-400">Start Param:</span> {currentStartParam || 'None'}
+              </div>
+              <div className="text-orange-300">
+                <span className="text-orange-400">Referred By:</span> {referredBy || 'None'}
+              </div>
+              <div className="text-orange-300">
+                <span className="text-orange-400">Your Code:</span> {referralInfo.code}
+              </div>
+              <div className="text-orange-300">
+                <span className="text-orange-400">Telegram Link:</span> {generateTelegramReferralLink()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Content based on active tab */}
       {activeTab === 'overview' && (
@@ -519,7 +556,7 @@ export const ReferralSystem: React.FC = () => {
             <div className="text-center mb-3">
               <div className="text-cyan-400 font-mono font-bold text-sm tracking-wider mb-2">SHARE YOUR REFERRAL LINK</div>
               <div className="text-cyan-300 font-mono text-xs tracking-wider mb-3">
-                {`${window.location.origin}?ref=${referralInfo.code}`}
+                {`https://t.me/DivineTaps_bot/mine?startapp=${referralInfo.code}`}
               </div>
               <button
                 onClick={shareReferral}
@@ -555,13 +592,34 @@ export const ReferralSystem: React.FC = () => {
             <div className="text-center">
               <div className="text-green-400 font-mono font-bold text-sm tracking-wider mb-2">SHARE ON SOCIAL</div>
               <div className="flex justify-center gap-2">
-                <button className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-mono text-xs font-bold tracking-wider rounded-lg transition-all duration-300 border border-blue-400">
+                <button 
+                  onClick={() => {
+                    const text = `🚀 Join DivineTap Mining and start earning rewards! Use my referral link: https://t.me/DivineTaps_bot/mine?startapp=${referralInfo.code}`;
+                    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+                    window.open(url, '_blank');
+                  }}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-mono text-xs font-bold tracking-wider rounded-lg transition-all duration-300 border border-blue-400"
+                >
                   Twitter
                 </button>
-                <button className="px-3 py-2 bg-blue-500 hover:bg-blue-400 text-white font-mono text-xs font-bold tracking-wider rounded-lg transition-all duration-300 border border-blue-400">
+                <button 
+                  onClick={() => {
+                    const text = `🚀 Join DivineTap Mining and start earning rewards! Use my referral link: https://t.me/DivineTaps_bot/mine?startapp=${referralInfo.code}`;
+                    const url = `https://t.me/share/url?url=${encodeURIComponent(`https://t.me/DivineTaps_bot/mine?startapp=${referralInfo.code}`)}&text=${encodeURIComponent(text)}`;
+                    window.open(url, '_blank');
+                  }}
+                  className="px-3 py-2 bg-blue-500 hover:bg-blue-400 text-white font-mono text-xs font-bold tracking-wider rounded-lg transition-all duration-300 border border-blue-400"
+                >
                   Telegram
                 </button>
-                <button className="px-3 py-2 bg-green-600 hover:bg-green-500 text-white font-mono text-xs font-bold tracking-wider rounded-lg transition-all duration-300 border border-green-400">
+                <button 
+                  onClick={() => {
+                    const text = `🚀 Join DivineTap Mining and start earning rewards! Use my referral link: https://t.me/DivineTaps_bot/mine?startapp=${referralInfo.code}`;
+                    const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                    window.open(url, '_blank');
+                  }}
+                  className="px-3 py-2 bg-green-600 hover:bg-green-500 text-white font-mono text-xs font-bold tracking-wider rounded-lg transition-all duration-300 border border-green-400"
+                >
                   WhatsApp
                 </button>
               </div>

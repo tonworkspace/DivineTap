@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 // Enhanced Notification System Interfaces
 export interface Notification {
@@ -444,7 +444,7 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
     });
   }, [addNotification]);
 
-  const showMilestoneNotification = useCallback((milestone: number, currentPoints: number) => {
+  const showMilestoneNotification = useCallback((milestone: number,) => {
     addNotification({
       type: 'milestone',
       title: '⭐ Milestone Reached!',
@@ -774,7 +774,7 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
     return (
       <>
         {/* Notification Bell */}
-        <div className="fixed top-2 sm:top-4 right-2 sm:right-4 z-[9999]">
+        <div className="fixed top-20 sm:top-4 right-4 sm:right-4 z-[9999]">
           <button
             onClick={() => setShowNotificationCenter(!showNotificationCenter)}
             className="relative p-2 sm:p-3 bg-black/80 backdrop-blur-xl border-2 border-cyan-500/50 rounded-lg hover:bg-black/90 hover:border-cyan-400/70 transition-all duration-300 group shadow-lg"

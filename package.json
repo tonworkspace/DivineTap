@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "homepage": "https://tonworkspace.github.io/DivineTap",
+  "homepage": "https://github.com/tonworkspace/DivineTap",
   "scripts": {
     "deploy": "gh-pages -d dist",
     "dev": "vite",

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GiOnTarget, GiCoins, GiGems, GiLightningArc, GiUpgrade } from 'react-icons/gi';
+import { GiCoins, GiLightningArc, GiUpgrade } from 'react-icons/gi';
 import { useGameContext } from '@/contexts/GameContext';
 import './TaskCenter.css';
 
@@ -20,7 +20,7 @@ interface TaskProgress {
 }
 
 export const TaskCenter: React.FC = () => {
-  const { points: userPoints, gems: userGems, addGems } = useGameContext();
+  const { addGems } = useGameContext();
   const [taskProgress, setTaskProgress] = useState<TaskProgress>({});
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [showRewardModal, setShowRewardModal] = useState(false);

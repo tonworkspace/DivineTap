@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { GiCrown, GiTrophy, GiMedal, GiCoins, GiGems, GiLightningArc } from 'react-icons/gi';
-import { BiTime, BiTrendingUp, BiTrendingDown, BiStar } from 'react-icons/bi';
+import { BiTime, BiTrendingUp, BiStar } from 'react-icons/bi';
 import { useGameContext } from '@/contexts/GameContext';
 import './GMPLeaderboard.css';
 
@@ -64,16 +64,16 @@ const getRankIcon = (rank: number) => {
   }
 };
 
-const getRankColor = (rank: number) => {
-  switch (rank) {
-    case 1: return 'from-yellow-400 to-yellow-600';
-    case 2: return 'from-gray-300 to-gray-500';
-    case 3: return 'from-orange-400 to-orange-600';
-    case 4:
-    case 5: return 'from-purple-400 to-purple-600';
-    default: return 'from-cyan-400 to-cyan-600';
-  }
-};
+// const getRankColor = (rank: number) => {
+//   switch (rank) {
+//     case 1: return 'from-yellow-400 to-yellow-600';
+//     case 2: return 'from-gray-300 to-gray-500';
+//     case 3: return 'from-orange-400 to-orange-600';
+//     case 4:
+//     case 5: return 'from-purple-400 to-purple-600';
+//     default: return 'from-cyan-400 to-cyan-600';
+//   }
+// };
 
 const formatNumber = (num: number): string => {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
@@ -81,18 +81,18 @@ const formatNumber = (num: number): string => {
   return num.toString();
 };
 
-const formatTimeAgo = (timestamp: number): string => {
-  const now = Date.now();
-  const diff = now - timestamp;
-  const minutes = Math.floor(diff / (1000 * 60));
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+// const formatTimeAgo = (timestamp: number): string => {
+//   const now = Date.now();
+//   const diff = now - timestamp;
+//   const minutes = Math.floor(diff / (1000 * 60));
+//   const hours = Math.floor(diff / (1000 * 60 * 60));
+//   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-  if (days > 0) return `${days}d ago`;
-  if (hours > 0) return `${hours}h ago`;
-  if (minutes > 0) return `${minutes}m ago`;
-  return 'Just now';
-};
+//   if (days > 0) return `${days}d ago`;
+//   if (hours > 0) return `${hours}h ago`;
+//   if (minutes > 0) return `${minutes}m ago`;
+//   return 'Just now';
+// };
 
 export const GMPLeaderboard: React.FC = () => {
   const { points: userPoints, gems: userGems } = useGameContext();
@@ -107,7 +107,7 @@ export const GMPLeaderboard: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [userRank, setUserRank] = useState<number | null>(null);
-  const [showAchievements, setShowAchievements] = useState<string | null>(null);
+  // const [showAchievements, setShowAchievements] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [miningStatus, setMiningStatus] = useState<{isMining: boolean, pointsPerSecond: number, currentEnergy: number, maxEnergy: number}>({
     isMining: false, 
@@ -356,7 +356,7 @@ export const GMPLeaderboard: React.FC = () => {
 
           {/* Simple Player Rows */}
           <div className="space-y-1 max-h-80 overflow-y-auto">
-            {getCurrentTabData().map((player, index) => (
+            {getCurrentTabData().map((player) => (
               <div
                 key={player.id}
                 className={`grid grid-cols-4 gap-2 p-2 rounded-lg transition-all duration-300 hover:bg-cyan-500/10 ${

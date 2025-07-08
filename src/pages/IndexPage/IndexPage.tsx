@@ -1,17 +1,15 @@
-import { FC, useMemo, useState, useEffect } from 'react';
+import { FC, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/contexts/ThemeContext';
-import { ThemeToggle } from '@/components/ThemeToggle';
-import { ThemeIndicator } from '@/components/ThemeIndicator';
 import { OnboardingScreen } from './OnboardingScreen';
 import { DivineMiningGame } from '@/components/DivineMiningGame';
 import { DailyRewards } from '@/components/DailyRewards';
 import { GMPLeaderboard } from '@/components/GMPLeaderboard';
 import { TaskCenter } from '@/components/TaskCenter';
 import { ReferralSystem } from '@/components/ReferralSystem';
-import { useTonAddress } from '@tonconnect/ui-react';
-import { isValidAddress } from '@/utility/address';
-import { Address } from '@ton/core';
+// import { useTonAddress } from '@tonconnect/ui-react';
+// import { isValidAddress } from '@/utility/address';
+// import { Address } from '@ton/core';
 import { useReferralIntegration } from '@/hooks/useReferralIntegration';
 import { GameProvider } from '@/contexts/GameContext';
 import { 
@@ -22,39 +20,39 @@ import {
 } from 'react-icons/gi';
 import { BiHome } from 'react-icons/bi';
 
-interface GameState {
-  divinePoints: number;
-  pointsPerSecond: number;
-  totalEarned24h: number;
-  totalEarned7d: number;
-  upgradesPurchased: number;
-  minersActive: number;
-  isMining: boolean;
-}
+// interface GameState {
+//   divinePoints: number;
+//   pointsPerSecond: number;
+//   totalEarned24h: number;
+//   totalEarned7d: number;
+//   upgradesPurchased: number;
+//   minersActive: number;
+//   isMining: boolean;
+// }
 
-interface Upgrade {
-  id: string;
-  name: string;
-  level: number;
-  effect: string;
-  baseCost: number;
-  costMultiplier: number;
-}
+// interface Upgrade {
+//   id: string;
+//   name: string;
+//   level: number;
+//   effect: string;
+//   baseCost: number;
+//   costMultiplier: number;
+// }
 
 export const IndexPage: FC = () => {
   const { user, isLoading, error } = useAuth();
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const [currentTab, setCurrentTab] = useState('zodiac');
-  const connectedAddressString = useTonAddress();
+  // const connectedAddressString = useTonAddress();
   
   // Add referral integration
   useReferralIntegration();
   
-  const connectedAddress = useMemo(() => {
-    return isValidAddress(connectedAddressString)
-      ? Address.parse(connectedAddressString)
-      : null;
-  }, [connectedAddressString]);
+  // const connectedAddress = useMemo(() => {
+  //   return isValidAddress(connectedAddressString)
+  //     ? Address.parse(connectedAddressString)
+  //     : null;
+  // }, [connectedAddressString]);
   
   // Get theme-specific colors
   const getThemeColors = () => {
@@ -475,24 +473,10 @@ export const IndexPage: FC = () => {
 
         </div>
 
-        {/* Futuristic Cyberpunk Bottom Navigation */}
-        <div className={`fixed bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-gray-900/90 to-black/95 backdrop-blur-2xl border-t border-cyan-500/30 safe-area-pb z-40 shadow-[0_-8px_32px_0_rgba(0,255,255,0.15)] transition-all duration-500`}>
-          {/* Futuristic Scan Line Effect */}
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/5 to-transparent animate-pulse" style={{ animationDuration: '3s' }}></div>
-          
-          {/* Cyberpunk Grid Pattern */}
-          <div className="absolute inset-0 opacity-10">
-            <div className="w-full h-full" style={{
-              backgroundImage: `
-                linear-gradient(rgba(0,255,255,0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0,255,255,0.1) 1px, transparent 1px)
-              `,
-              backgroundSize: '20px 20px'
-            }}></div>
-          </div>
-          
-          <div className="max-w-lg mx-auto px-2 relative">
-            <div className="grid grid-cols-5 items-center gap-2">
+        {/* Compact Cyberpunk Bottom Navigation */}
+        <div className={`fixed bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-gray-900/90 to-black/95 backdrop-blur-xl border-t border-cyan-500/30 safe-area-pb z-40 shadow-[0_-4px_16px_0_rgba(0,255,255,0.1)] transition-all duration-300`}>
+          <div className="max-w-lg mx-auto px-1 relative">
+            <div className="grid grid-cols-5 items-center gap-1">
               {[
                 { id: 'zodiac', text: 'Play', Icon: BiHome },
                 { id: 'daily', text: 'Rewards', Icon: GiCrystalBall },
@@ -507,103 +491,72 @@ export const IndexPage: FC = () => {
                     aria-label={text}
                     onClick={() => setCurrentTab(id)}
                     className={`
-                      group relative flex flex-col items-center py-3 w-full transition-all duration-500
-                      font-mono font-bold tracking-wider
+                      group relative flex flex-col items-center py-2 w-full transition-all duration-300
+                      font-mono font-bold tracking-wide
                       ${isActive 
-                        ? 'text-cyan-400 drop-shadow-[0_0_20px_rgba(0,255,255,0.6)]'
-                        : 'text-gray-400 hover:text-cyan-300 hover:drop-shadow-[0_0_15px_rgba(0,255,255,0.4)]'
+                        ? 'text-cyan-400 drop-shadow-[0_0_12px_rgba(0,255,255,0.5)]'
+                        : 'text-gray-400 hover:text-cyan-300 hover:drop-shadow-[0_0_8px_rgba(0,255,255,0.3)]'
                       }
                     `}
                   >
-                    {/* Futuristic Holographic Background */}
+                    {/* Compact Icon Container */}
                     <div className={`
-                      absolute inset-0 rounded-xl transition-all duration-500
+                      relative flex items-center justify-center rounded-lg transition-all duration-300 mb-1
                       ${isActive 
-                        ? 'bg-gradient-to-br from-cyan-500/20 via-blue-600/15 to-purple-600/20 border border-cyan-400/50 shadow-[0_0_30px_rgba(0,255,255,0.3)]'
-                        : 'bg-gradient-to-br from-gray-800/50 via-gray-700/30 to-gray-800/50 border border-gray-600/30 group-hover:border-cyan-500/40 group-hover:shadow-[0_0_20px_rgba(0,255,255,0.2)]'
-                      }
-                    `}>
-                      {/* Cyberpunk Corner Accents */}
-                      <div className={`absolute top-0 left-0 w-2 h-2 border-l-2 border-t-2 ${isActive ? 'border-cyan-400' : 'border-gray-600 group-hover:border-cyan-500'} transition-all duration-300`}></div>
-                      <div className={`absolute top-0 right-0 w-2 h-2 border-r-2 border-t-2 ${isActive ? 'border-cyan-400' : 'border-gray-600 group-hover:border-cyan-500'} transition-all duration-300`}></div>
-                      <div className={`absolute bottom-0 left-0 w-2 h-2 border-l-2 border-b-2 ${isActive ? 'border-cyan-400' : 'border-gray-600 group-hover:border-cyan-500'} transition-all duration-300`}></div>
-                      <div className={`absolute bottom-0 right-0 w-2 h-2 border-r-2 border-b-2 ${isActive ? 'border-cyan-400' : 'border-gray-600 group-hover:border-cyan-500'} transition-all duration-300`}></div>
-                    </div>
-                    
-                    {/* Futuristic Icon Container */}
-                    <div className={`
-                      relative flex items-center justify-center rounded-lg transition-all duration-500 mb-2
-                      ${isActive 
-                        ? 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-[0_0_25px_rgba(0,255,255,0.5)] scale-110 border-2 border-cyan-400'
-                        : 'bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-cyan-600 group-hover:to-blue-700 border-2 border-gray-600 group-hover:border-cyan-500 group-hover:shadow-[0_0_20px_rgba(0,255,255,0.3)]'
+                        ? 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-[0_0_15px_rgba(0,255,255,0.4)] scale-105 border border-cyan-400'
+                        : 'bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-cyan-600 group-hover:to-blue-700 border border-gray-600 group-hover:border-cyan-500 group-hover:shadow-[0_0_12px_rgba(0,255,255,0.2)]'
                       }
                     `}
                       style={{
-                        width: 44,
-                        height: 44,
+                        width: 36,
+                        height: 36,
                       }}
                     >
-                      {/* Futuristic Glow Effect */}
+                      {/* Compact Glow Effect */}
                       {isActive && (
-                        <>
-                          <div className="absolute inset-0 bg-cyan-400/30 rounded-lg blur-md animate-pulse" style={{ animationDuration: '2s' }}></div>
-                          <div className="absolute inset-0 bg-gradient-to-br from-cyan-400/20 to-transparent rounded-lg animate-pulse" style={{ animationDuration: '3s' }}></div>
-                        </>
+                        <div className="absolute inset-0 bg-cyan-400/20 rounded-lg blur-sm animate-pulse" style={{ animationDuration: '2s' }}></div>
                       )}
                       
                       <Icon 
-                        size={20} 
+                        size={16} 
                         className={`
                           relative z-10 transition-all duration-300
                           ${isActive 
-                            ? 'text-white drop-shadow-[0_0_10px_rgba(0,255,255,0.8)] animate-pulse' 
-                            : 'text-gray-300 group-hover:text-white group-hover:drop-shadow-[0_0_8px_rgba(0,255,255,0.6)]'
+                            ? 'text-white drop-shadow-[0_0_6px_rgba(0,255,255,0.6)]' 
+                            : 'text-gray-300 group-hover:text-white group-hover:drop-shadow-[0_0_4px_rgba(0,255,255,0.4)]'
                           }
                         `} 
                       />
-                      
-                      {/* Futuristic Scanning Line */}
-                      {isActive && (
-                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-cyan-400/40 to-transparent animate-pulse" style={{ animationDuration: '1.5s' }}></div>
-                      )}
                     </div>
                     
-                    {/* Futuristic Text */}
+                    {/* Compact Text */}
                     <span className={`
-                      text-[9px] font-mono font-bold tracking-widest truncate max-w-[60px] text-center transition-all duration-300
+                      text-[8px] font-mono font-bold tracking-wide truncate max-w-[50px] text-center transition-all duration-300
                       ${isActive 
-                        ? 'text-cyan-300 drop-shadow-[0_0_8px_rgba(0,255,255,0.6)]'
-                        : 'text-gray-400 group-hover:text-cyan-300 group-hover:drop-shadow-[0_0_6px_rgba(0,255,255,0.4)]'
+                        ? 'text-cyan-300 drop-shadow-[0_0_4px_rgba(0,255,255,0.4)]'
+                        : 'text-gray-400 group-hover:text-cyan-300 group-hover:drop-shadow-[0_0_3px_rgba(0,255,255,0.3)]'
                       }
                     `}
                       style={{
-                        letterSpacing: '1px',
+                        letterSpacing: '0.5px',
                         textTransform: 'uppercase',
                       }}
                     >
                       {text}
                     </span>
                     
-                    {/* Futuristic Active Indicator */}
+                    {/* Compact Active Indicator */}
                     {isActive && (
-                      <>
-                        <div className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-2 h-2 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_10px_rgba(0,255,255,0.8)]"></div>
-                        <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-cyan-400 rounded-full animate-ping"></div>
-                      </>
+                      <div className="absolute -bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-cyan-400 rounded-full animate-ping"></div>
                     )}
-                    
-                    {/* Futuristic Hover Effects */}
-                    <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-500/10 to-transparent animate-pulse" style={{ animationDuration: '2s' }}></div>
-                    </div>
                   </button>
                 );
               })}
             </div>
           </div>
           
-          {/* Futuristic Bottom Border Glow */}
-          <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500 to-transparent animate-pulse" style={{ animationDuration: '4s' }}></div>
+          {/* Compact Bottom Border Glow */}
+          <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500 to-transparent animate-pulse" style={{ animationDuration: '3s' }}></div>
         </div>
       </div>
     </div>

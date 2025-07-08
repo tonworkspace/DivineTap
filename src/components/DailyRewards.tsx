@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GiCoins, GiGems, GiCrown, GiShield, GiHourglass } from 'react-icons/gi';
+import { GiCoins, GiGems, GiCrown, GiShield } from 'react-icons/gi';
 import { useGameContext } from '@/contexts/GameContext';
 import { useNotificationSystem } from './NotificationSystem';
 import './DailyRewards.css';
@@ -289,12 +289,12 @@ export const DailyRewards: React.FC = () => {
     ) || REWARD_TIERS[0];
   }, [dailyStreak.current, dailyStreak.vipLevel]);
 
-  // Get next reward tier
-  const getNextRewardTier = useCallback(() => {
-    const currentTier = getCurrentRewardTier();
-    const currentIndex = REWARD_TIERS.findIndex(tier => tier.id === currentTier.id);
-    return REWARD_TIERS[currentIndex + 1] || null;
-  }, [getCurrentRewardTier]);
+  // // Get next reward tier
+  // const getNextRewardTier = useCallback(() => {
+  //   const currentTier = getCurrentRewardTier();
+  //   const currentIndex = REWARD_TIERS.findIndex(tier => tier.id === currentTier.id);
+  //   return REWARD_TIERS[currentIndex + 1] || null;
+  // }, [getCurrentRewardTier]);
 
   // Calculate bonus multiplier
   const getBonusMultiplier = useCallback(() => {
@@ -491,17 +491,17 @@ export const DailyRewards: React.FC = () => {
     );
   }, [dailyStreak.achievements]);
 
-  // Get available achievements
-  const availableAchievements = useMemo(() => {
-    const achievements = dailyStreak.achievements || [];
-    return ACHIEVEMENTS.filter(achievement => 
-      !achievements.includes(achievement.id) && 
-      achievement.condition(dailyStreak)
-    );
-  }, [dailyStreak]);
+  // // Get available achievements
+  // const availableAchievements = useMemo(() => {
+  //   const achievements = dailyStreak.achievements || [];
+  //   return ACHIEVEMENTS.filter(achievement => 
+  //     !achievements.includes(achievement.id) && 
+  //     achievement.condition(dailyStreak)
+  //   );
+  // }, [dailyStreak]);
 
   const currentTier = getCurrentRewardTier();
-  const nextTier = getNextRewardTier();
+  // const nextTier = getNextRewardTier();
   const bonusMultiplier = getBonusMultiplier();
 
   return (
@@ -795,7 +795,7 @@ export const DailyRewards: React.FC = () => {
           <div className="text-center mb-4">
             <div className="text-purple-400 font-mono font-bold text-sm tracking-wider mb-2">REWARD PREVIEW</div>
             <div className="grid grid-cols-1 gap-2">
-              {REWARD_TIERS.map((tier, index) => (
+              {REWARD_TIERS.map((tier) => (
                 <div key={tier.id} className={`p-2 rounded-lg border ${
                   tier.id === currentTier.id 
                     ? 'bg-purple-500/20 border-purple-400/50' 
