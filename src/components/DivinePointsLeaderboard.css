@@ -1,0 +1,310 @@
+/* Divine Points Leaderboard Styles */
+.divine-leaderboard {
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 20, 40, 0.8) 100%);
+}
+
+.divine-leaderboard .rank-1 {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.1) 0%, rgba(251, 191, 36, 0.05) 100%);
+  border-color: rgba(251, 191, 36, 0.6);
+  box-shadow: 0 0 30px rgba(251, 191, 36, 0.3);
+}
+
+.divine-leaderboard .rank-2 {
+  background: linear-gradient(135deg, rgba(156, 163, 175, 0.1) 0%, rgba(156, 163, 175, 0.05) 100%);
+  border-color: rgba(156, 163, 175, 0.6);
+  box-shadow: 0 0 25px rgba(156, 163, 175, 0.3);
+}
+
+.divine-leaderboard .rank-3 {
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.1) 0%, rgba(217, 119, 6, 0.05) 100%);
+  border-color: rgba(217, 119, 6, 0.6);
+  box-shadow: 0 0 20px rgba(217, 119, 6, 0.3);
+}
+
+.divine-leaderboard .player-card {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.divine-leaderboard .player-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.1), transparent);
+  transition: left 0.5s ease;
+}
+
+.divine-leaderboard .player-card:hover::before {
+  left: 100%;
+}
+
+.divine-leaderboard .player-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 255, 255, 0.2);
+}
+
+.divine-leaderboard .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+.divine-leaderboard .stat-card {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 255, 255, 0.2);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.divine-leaderboard .stat-card:hover {
+  border-color: rgba(0, 255, 255, 0.4);
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.1);
+}
+
+.divine-leaderboard .user-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.divine-leaderboard .user-stat-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.divine-leaderboard .user-stat-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.05) 50%, transparent 70%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+}
+
+.divine-leaderboard .user-stat-card:hover::after {
+  transform: translateX(100%);
+}
+
+.divine-leaderboard .tab-navigation {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0.5rem;
+  padding: 0.25rem;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.divine-leaderboard .tab-button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.divine-leaderboard .tab-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent, rgba(0, 255, 255, 0.1), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+
+.divine-leaderboard .tab-button:hover::before {
+  transform: translateX(100%);
+}
+
+.divine-leaderboard .tab-button.active {
+  background: rgba(0, 255, 255, 0.3);
+  color: rgb(34, 211, 238);
+  border: 1px solid rgba(0, 255, 255, 0.5);
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.2);
+}
+
+.divine-leaderboard .tab-button:not(.active) {
+  color: rgb(156, 163, 175);
+}
+
+.divine-leaderboard .tab-button:not(.active):hover {
+  color: rgb(34, 211, 238);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.divine-leaderboard .loading-spinner {
+  position: relative;
+  width: 3rem;
+  height: 3rem;
+}
+
+.divine-leaderboard .loading-spinner::before,
+.divine-leaderboard .loading-spinner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 4px solid transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.divine-leaderboard .loading-spinner::before {
+  border-top-color: rgb(6, 182, 212);
+}
+
+.divine-leaderboard .loading-spinner::after {
+  border-top-color: rgb(59, 130, 246);
+  animation-delay: 0.2s;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.divine-leaderboard .progress-bar {
+  background: rgba(75, 85, 99, 0.5);
+  border-radius: 9999px;
+  height: 0.25rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.divine-leaderboard .progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 1s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.divine-leaderboard .progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.divine-leaderboard .rank-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, rgb(6, 182, 212), rgb(59, 130, 246));
+  color: white;
+  font-weight: bold;
+  font-size: 0.75rem;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.divine-leaderboard .player-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, rgb(6, 182, 212), rgb(59, 130, 246));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 0.75rem;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.divine-leaderboard .refresh-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.divine-leaderboard .refresh-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, transparent, rgba(0, 255, 255, 0.1), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+
+.divine-leaderboard .refresh-button:hover::before {
+  transform: translateX(100%);
+}
+
+.divine-leaderboard .refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.divine-leaderboard .refresh-button:disabled::before {
+  display: none;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .divine-leaderboard .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .divine-leaderboard .user-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .divine-leaderboard .tab-navigation {
+    flex-direction: column;
+  }
+  
+  .divine-leaderboard .tab-button {
+    font-size: 0.7rem;
+    padding: 0.4rem 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .divine-leaderboard .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .divine-leaderboard .player-card {
+    padding: 0.75rem;
+  }
+  
+  .divine-leaderboard .player-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+} 

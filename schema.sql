@@ -484,3 +484,78 @@ FROM users u
 LEFT JOIN users r ON r.referrer_id = u.id
 LEFT JOIN referral_earnings re ON u.id = re.user_id
 GROUP BY u.id, u.wallet_address, u.username; 
+
+-- User Game Data Table for Divine Mining Game
+CREATE TABLE IF NOT EXISTS user_game_data (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    game_data JSONB NOT NULL,
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id)
+);
+
+-- Index for faster queries
+CREATE INDEX IF NOT EXISTS idx_user_game_data_user_id ON user_game_data(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_game_data_last_updated ON user_game_data(last_updated);
+
+-- Disable Row Level Security for now since we're using anon key with custom auth
+-- ALTER TABLE user_game_data ENABLE ROW LEVEL SECURITY;
+
+-- Note: RLS is disabled because we're using the anon key with our own authentication system
+-- The application handles user validation through the telegram_id in the users table
+
+-- Function to automatically update last_updated timestamp
+CREATE OR REPLACE FUNCTION update_user_game_data_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.last_updated = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to automatically update timestamp
+CREATE TRIGGER update_user_game_data_timestamp
+    BEFORE UPDATE ON user_game_data
+    FOR EACH ROW
+    EXECUTE FUNCTION update_user_game_data_timestamp();
+
+-- Function to get user game data with validation
+CREATE OR REPLACE FUNCTION get_user_game_data(p_user_id INTEGER)
+RETURNS JSONB AS $$
+DECLARE
+    game_data JSONB;
+BEGIN
+    SELECT user_game_data.game_data INTO game_data
+    FROM user_game_data
+    WHERE user_id = p_user_id;
+    
+    RETURN COALESCE(game_data, '{}'::jsonb);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to upsert user game data with validation
+CREATE OR REPLACE FUNCTION upsert_user_game_data(
+    p_user_id INTEGER,
+    p_game_data JSONB
+)
+RETURNS BOOLEAN AS $$
+BEGIN
+    INSERT INTO user_game_data (user_id, game_data)
+    VALUES (p_user_id, p_game_data)
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+        game_data = p_game_data,
+        last_updated = NOW();
+    
+    RETURN TRUE;
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Add comments for documentation
+COMMENT ON TABLE user_game_data IS 'Stores user game state, upgrades, and achievements for the Divine Mining Game';
+COMMENT ON COLUMN user_game_data.game_data IS 'JSON object containing all game state including divine points, energy, upgrades, achievements, etc.';
+COMMENT ON COLUMN user_game_data.last_updated IS 'Timestamp of last game data update'; 

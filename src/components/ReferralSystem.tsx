@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { GiShare, GiPresent, GiPerson } from 'react-icons/gi';
-import { BiLink, } from 'react-icons/bi';
+import { GiPerson, GiPresent, GiShare } from 'react-icons/gi';
+import { BiLink } from 'react-icons/bi';
 import { useGameContext } from '@/contexts/GameContext';
+import { useAuth } from '@/hooks/useAuth';
 import { useReferralIntegration } from '@/hooks/useReferralIntegration';
 import { retrieveLaunchParams } from '@telegram-apps/sdk-react';
 import './ReferralSystem.css';
@@ -89,46 +90,61 @@ const REFERRAL_REWARDS: ReferralReward[] = [
 
 export const ReferralSystem: React.FC = () => {
   const { addPoints, addGems } = useGameContext();
-  const { generateReferralCode, generateTelegramReferralLink } = useReferralIntegration();
+  const { user } = useAuth();
+  const { generateTelegramReferralLink } = useReferralIntegration();
   
+  // Helper function to get user-specific localStorage keys
+  const getUserSpecificKey = (baseKey: string, userId?: string) => {
+    if (!userId) return baseKey; // Fallback for non-authenticated users
+    return `${baseKey}_${userId}`;
+  };
+  
+  const [activeTab, setActiveTab] = useState<'overview' | 'referrals' | 'rewards' | 'share'>('overview');
+  const [showRewardModal, setShowRewardModal] = useState(false);
+  const [rewardMessage, setRewardMessage] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [showQR, setShowQR] = useState(false);
+
   const [referralInfo, setReferralInfo] = useState<ReferralData>({
     code: '',
     totalReferrals: 0,
     activeReferrals: 0,
     totalEarned: 0,
-    rewards: { points: 0, gems: 0, special: [] },
+    rewards: {
+      points: 0,
+      gems: 0,
+      special: []
+    },
     referrals: [],
     level: 1,
     nextLevelReward: ''
   });
-  
-  const [showQR, setShowQR] = useState(false);
-  const [showRewardModal, setShowRewardModal] = useState(false);
-  const [rewardMessage, setRewardMessage] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'referrals' | 'rewards' | 'share'>('referrals');
-  const [showDebug, setShowDebug] = useState(false);
 
-  // Get current start parameter for debugging
-  const currentStartParam = retrieveLaunchParams().startParam;
-  const referredBy = localStorage.getItem('referredBy');
+  // Generate referral code
+  const generateReferralCode = useCallback(() => {
+    const userId = user?.id ? user.id.toString() : '';
+    const timestamp = Date.now().toString(36);
+    return `DIVINE${userId}${timestamp}`.toUpperCase();
+  }, [user?.id]);
 
-  // Load referral data
+  // Load referral data from localStorage
   useEffect(() => {
     const loadReferralData = () => {
-      const savedData = localStorage.getItem('divineMiningReferralData');
+      const userId = user?.id ? user.id.toString() : undefined;
+      const userReferralDataKey = getUserSpecificKey('divineMiningReferralData', userId);
+      const savedData = localStorage.getItem(userReferralDataKey);
       if (savedData) {
         try {
-          const data = JSON.parse(savedData);
-          setReferralInfo(data);
+          const parsed = JSON.parse(savedData);
+          setReferralInfo(parsed);
         } catch (error) {
-          console.error('Error parsing referral data:', error);
+          console.error('Error parsing referral data for user:', userId, error);
         }
       }
     };
-
     loadReferralData();
-  }, []);
+  }, [user?.id]);
 
   // Generate referral code if not exists
   useEffect(() => {
@@ -140,13 +156,17 @@ export const ReferralSystem: React.FC = () => {
 
   // Save referral data
   useEffect(() => {
-    localStorage.setItem('divineMiningReferralData', JSON.stringify(referralInfo));
-  }, [referralInfo]);
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userReferralDataKey = getUserSpecificKey('divineMiningReferralData', userId);
+    localStorage.setItem(userReferralDataKey, JSON.stringify(referralInfo));
+  }, [referralInfo, user?.id]);
 
     // Mock referral data for demonstration
   useEffect(() => {
     // Only load mock data if no existing data
-    const savedData = localStorage.getItem('divineMiningReferralData');
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userReferralDataKey = getUserSpecificKey('divineMiningReferralData', userId);
+    const savedData = localStorage.getItem(userReferralDataKey);
     if (!savedData) {
       const mockReferrals: Referral[] = [
         {
@@ -331,10 +351,10 @@ export const ReferralSystem: React.FC = () => {
           {showDebug && (
             <div className="space-y-2 text-xs font-mono tracking-wider">
               <div className="text-orange-300">
-                <span className="text-orange-400">Start Param:</span> {currentStartParam || 'None'}
+                <span className="text-orange-400">Start Param:</span> {retrieveLaunchParams().startParam || 'None'}
               </div>
               <div className="text-orange-300">
-                <span className="text-orange-400">Referred By:</span> {referredBy || 'None'}
+                <span className="text-orange-400">Referred By:</span> {localStorage.getItem('referredBy') || 'None'}
               </div>
               <div className="text-orange-300">
                 <span className="text-orange-400">Your Code:</span> {referralInfo.code}

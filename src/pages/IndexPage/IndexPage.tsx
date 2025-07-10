@@ -4,7 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { OnboardingScreen } from './OnboardingScreen';
 import { DivineMiningGame } from '@/components/DivineMiningGame';
 import { DailyRewards } from '@/components/DailyRewards';
-import { GMPLeaderboard } from '@/components/GMPLeaderboard';
+import { DivinePointsLeaderboard } from '@/components/DivinePointsLeaderboard';
 import { TaskCenter } from '@/components/TaskCenter';
 import { ReferralSystem } from '@/components/ReferralSystem';
 // import { useTonAddress } from '@tonconnect/ui-react';
@@ -16,7 +16,7 @@ import {
   GiCrystalBall, 
   GiCrystalCluster,
   GiSpellBook,
-  GiCardAceSpades
+  GiDiamonds
 } from 'react-icons/gi';
 import { BiHome } from 'react-icons/bi';
 
@@ -457,7 +457,7 @@ export const IndexPage: FC = () => {
 
           {currentTab === 'zodiac' && <DivineMiningGame />}
 
-          {currentTab === 'tarot' && <GMPLeaderboard />}
+          {currentTab === 'divine' && <DivinePointsLeaderboard />}
 
           {currentTab === 'crystals' && (
             <div className="flex-1 overflow-y-auto">
@@ -480,7 +480,7 @@ export const IndexPage: FC = () => {
               {[
                 { id: 'zodiac', text: 'Play', Icon: BiHome },
                 { id: 'daily', text: 'Rewards', Icon: GiCrystalBall },
-                { id: 'tarot', text: 'Ranks', Icon: GiCardAceSpades }, 
+                { id: 'divine', text: 'Divine', Icon: GiDiamonds },
                 { id: 'crystals', text: 'Tasks', Icon: GiCrystalCluster },
                 { id: 'spells', text: 'Friends', Icon: GiSpellBook }, 
               ].map(({ id, text, Icon }) => {

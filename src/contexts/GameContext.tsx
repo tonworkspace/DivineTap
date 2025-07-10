@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 
 interface GameContextType {
   points: number;
@@ -27,28 +28,47 @@ interface GameProviderProps {
 }
 
 export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
+  const { user } = useAuth();
+  
+  // Helper function to get user-specific localStorage keys
+  const getUserSpecificKey = (baseKey: string, userId?: string) => {
+    if (!userId) return baseKey; // Fallback for non-authenticated users
+    return `${baseKey}_${userId}`;
+  };
+  
   // Points are now managed by DivineMiningGame - this is just for display
   const [points, setPoints] = useState(() => {
-    const saved = localStorage.getItem('divineMiningPoints');
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userPointsKey = getUserSpecificKey('divineMiningPoints', userId);
+    const saved = localStorage.getItem(userPointsKey);
     return saved ? parseInt(saved, 10) : 100;
   });
 
   const [gems, setGems] = useState(() => {
-    const saved = localStorage.getItem('divineMiningGems');
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userGemsKey = getUserSpecificKey('divineMiningGems', userId);
+    const saved = localStorage.getItem(userGemsKey);
     return saved ? parseInt(saved, 10) : 10;
   });
 
   const [activeBoosts, setActiveBoosts] = useState<Array<{type: string, multiplier: number, expires: number}>>(() => {
-    const saved = localStorage.getItem('divineMiningBoosts');
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userBoostsKey = getUserSpecificKey('divineMiningBoosts', userId);
+    const saved = localStorage.getItem(userBoostsKey);
     return saved ? JSON.parse(saved) : [];
   });
 
   // Real-time sync with DivineMiningGame localStorage
   useEffect(() => {
     const syncWithDivineMining = () => {
-      const savedPoints = localStorage.getItem('divineMiningPoints');
-      const savedGems = localStorage.getItem('divineMiningGems');
-      const savedBoosts = localStorage.getItem('divineMiningBoosts');
+      const userId = user?.id ? user.id.toString() : undefined;
+      const userPointsKey = getUserSpecificKey('divineMiningPoints', userId);
+      const userGemsKey = getUserSpecificKey('divineMiningGems', userId);
+      const userBoostsKey = getUserSpecificKey('divineMiningBoosts', userId);
+      
+      const savedPoints = localStorage.getItem(userPointsKey);
+      const savedGems = localStorage.getItem(userGemsKey);
+      const savedBoosts = localStorage.getItem(userBoostsKey);
       
       if (savedPoints) {
         const newPoints = parseInt(savedPoints, 10);
@@ -84,7 +104,12 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
 
     // Also listen for storage events (when localStorage changes in other tabs)
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'divineMiningPoints' || e.key === 'divineMiningGems' || e.key === 'divineMiningBoosts') {
+      const userId = user?.id ? user.id.toString() : undefined;
+      const userPointsKey = getUserSpecificKey('divineMiningPoints', userId);
+      const userGemsKey = getUserSpecificKey('divineMiningGems', userId);
+      const userBoostsKey = getUserSpecificKey('divineMiningBoosts', userId);
+      
+      if (e.key === userPointsKey || e.key === userGemsKey || e.key === userBoostsKey) {
         syncWithDivineMining();
       }
     };
@@ -95,16 +120,20 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
       clearInterval(syncInterval);
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [points, gems, activeBoosts]);
+  }, [points, gems, activeBoosts, user?.id]);
 
   // Save gems to localStorage whenever state changes
   useEffect(() => {
-    localStorage.setItem('divineMiningGems', gems.toString());
-  }, [gems]);
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userGemsKey = getUserSpecificKey('divineMiningGems', userId);
+    localStorage.setItem(userGemsKey, gems.toString());
+  }, [gems, user?.id]);
 
   useEffect(() => {
-    localStorage.setItem('divineMiningBoosts', JSON.stringify(activeBoosts));
-  }, [activeBoosts]);
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userBoostsKey = getUserSpecificKey('divineMiningBoosts', userId);
+    localStorage.setItem(userBoostsKey, JSON.stringify(activeBoosts));
+  }, [activeBoosts, user?.id]);
 
   // Clean up expired boosts
   useEffect(() => {

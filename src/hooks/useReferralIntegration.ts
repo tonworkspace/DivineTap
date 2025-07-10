@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { retrieveLaunchParams } from '@telegram-apps/sdk-react';
+import { useAuth } from '@/hooks/useAuth';
 
 interface ReferralData {
   code: string;
@@ -17,6 +18,14 @@ interface ReferralData {
 }
 
 export const useReferralIntegration = () => {
+  const { user } = useAuth();
+  
+  // Helper function to get user-specific localStorage keys
+  const getUserSpecificKey = (baseKey: string, userId?: string) => {
+    if (!userId) return baseKey; // Fallback for non-authenticated users
+    return `${baseKey}_${userId}`;
+  };
+  
   const [referralCode, setReferralCode] = useState<string>('');
   const [referralData, setReferralData] = useState<ReferralData>({
     code: '',
@@ -48,26 +57,30 @@ export const useReferralIntegration = () => {
   // Load referral data from localStorage
   const loadReferralData = useCallback(() => {
     try {
-      const savedData = localStorage.getItem('divineMiningReferralData');
+      const userId = user?.id ? user.id.toString() : undefined;
+      const userReferralDataKey = getUserSpecificKey('divineMiningReferralData', userId);
+      const savedData = localStorage.getItem(userReferralDataKey);
       if (savedData) {
         const data = JSON.parse(savedData);
         setReferralData(data);
         setReferralCode(data.code || '');
       }
     } catch (error) {
-      console.error('Error loading referral data:', error);
+      console.error('Error loading referral data for user:', user?.id, error);
     }
-  }, []);
+  }, [user?.id]);
 
   // Save referral data to localStorage
   const saveReferralData = useCallback((data: ReferralData) => {
     try {
-      localStorage.setItem('divineMiningReferralData', JSON.stringify(data));
+      const userId = user?.id ? user.id.toString() : undefined;
+      const userReferralDataKey = getUserSpecificKey('divineMiningReferralData', userId);
+      localStorage.setItem(userReferralDataKey, JSON.stringify(data));
       setReferralData(data);
     } catch (error) {
-      console.error('Error saving referral data:', error);
+      console.error('Error saving referral data for user:', user?.id, error);
     }
-  }, []);
+  }, [user?.id]);
 
   // Process Telegram start parameter for referral tracking
   const processStartParameter = useCallback(() => {

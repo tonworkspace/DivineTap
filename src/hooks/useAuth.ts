@@ -185,7 +185,7 @@ export const useAuth = () => {
             .from('users')
             .insert([{
               telegram_id: telegramId,
-              username: telegramUser.username || `user_${telegramId}`,
+              username: telegramUser.username || (telegramUser.firstName ? `${telegramUser.firstName}${telegramUser.lastName ? ` ${telegramUser.lastName}` : ''}` : `Miner_${String(telegramId).slice(-4)}`),
               first_name: telegramUser.firstName || null,
               last_name: telegramUser.lastName || null,
               language_code: telegramUser.languageCode || null,

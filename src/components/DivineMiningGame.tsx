@@ -1,15 +1,24 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useGameContext } from '@/contexts/GameContext';
 import { useNotificationSystem } from './NotificationSystem';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabaseClient';
 
 interface Upgrade {
   id: string;
   name: string;
   level: number;
+  maxLevel: number; // New: Maximum level cap
   effect: string;
   baseCost: number;
   costMultiplier: number;
   effectValue: number;
+  category?: string;
+  unlockRequirement?: {
+    type: 'points' | 'upgrades' | 'level' | 'category';
+    value: number;
+    category?: string;
+  };
 }
 
 interface GameState {
@@ -69,6 +78,13 @@ interface TutorialState {
 }
 
 const GAME_VERSION = '1.1.0'; // Updated version
+
+// User-specific localStorage keys
+const getUserSpecificKey = (baseKey: string, userId?: string) => {
+  if (!userId) return baseKey; // Fallback for non-authenticated users
+  return `${baseKey}_${userId}`;
+};
+
 const SAVE_KEY = 'divineMiningGame';
 const BACKUP_KEY = 'divineMiningGame_backup';
 const HIGH_SCORE_KEY = 'divineMiningHighScore';
@@ -76,84 +92,20 @@ const DIVINE_POINTS_KEY = 'divineMiningPoints';
 const TOTAL_EARNED_KEY = 'divineMiningTotalEarned'; // New: Separate key for total earned
 const SESSION_KEY = 'divineMiningSession'; // New: Separate key for session data
 const TUTORIAL_KEY = 'divineMiningTutorial'; // New: Tutorial progress key
+const UPGRADES_KEY = 'divineMiningUpgrades';
+const UPGRADES_BACKUP_KEY = 'divineMiningUpgrades_backup';
+const ENERGY_UPGRADES_KEY = 'divineMiningEnergyUpgrades';
+const PRESTIGE_MULTIPLIER_KEY = 'divineMiningPrestigeMultiplier';
+const ACHIEVEMENTS_KEY = 'divineMiningAchievements'; // New: Achievements key
+
 const AUTO_SAVE_INTERVAL = 30000; // 30 seconds
 const BACKUP_INTERVAL = 300000; // 5 minutes
 const OFFLINE_EFFICIENCY_CAP = 14; // 14 days max offline earnings
 const OFFLINE_EFFICIENCY_BONUS = 0.1; // 10% bonus per day offline (max 140%)
 
-// // Enhanced Notification System Interfaces
-// interface Notification {
-//   id: string;
-//   type: 'success' | 'error' | 'warning' | 'info' | 'achievement' | 'milestone' | 'offline' | 'energy' | 'upgrade' | 'system' | 'progress' | 'reward' | 'prestige' | 'tutorial';
-//   title: string;
-//   message: string;
-//   description?: string;
-//   icon?: string;
-//   duration?: number;
-//   priority: 'low' | 'medium' | 'high' | 'critical';
-//   actions?: NotificationAction[];
-//   timestamp: number;
-//   read: boolean;
-//   dismissed: boolean;
-//   position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center' | 'center' | 'smart';
-//   animation?: 'slide-in' | 'fade-in' | 'bounce-in' | 'scale-in' | 'slide-up' | 'slide-down' | 'zoom-in' | 'flip-in';
-//   sound?: boolean;
-//   vibration?: boolean;
-//   autoDismiss?: boolean;
-//   persistent?: boolean;
-//   category?: string;
-//   metadata?: Record<string, any>;
-//   progress?: {
-//     current: number;
-//     max: number;
-//     label?: string;
-//     color?: string;
-//   };
-//   stackable?: boolean;
-//   groupId?: string;
-//   expiresAt?: number;
-// }
-
-// interface NotificationAction {
-//   label: string;
-//   action: () => void;
-//   type: 'primary' | 'secondary' | 'danger' | 'success' | 'warning';
-//   icon?: string;
-//   disabled?: boolean;
-//   loading?: boolean;
-// }
-
-// interface NotificationQueue {
-//   notifications: Notification[];
-//   maxNotifications: number;
-//   maxDuration: number;
-//   history: Notification[];
-//   maxHistory: number;
-// }
-
-// interface NotificationPreferences {
-//   soundEnabled: boolean;
-//   vibrationEnabled: boolean;
-//   autoDismiss: boolean;
-//   position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center' | 'smart';
-//   maxNotifications: number;
-//   showNotifications: boolean;
-//   categories: {
-//     achievement: boolean;
-//     milestone: boolean;
-//     system: boolean;
-//     energy: boolean;
-//     upgrade: boolean;
-//     offline: boolean;
-//     progress: boolean;
-//     tutorial: boolean;
-//   };
-//   animationSpeed: 'slow' | 'normal' | 'fast';
-//   theme: 'dark' | 'light' | 'auto';
-// }
-
 export const DivineMiningGame: React.FC = () => {
   const { setPoints, activeBoosts } = useGameContext();
+  const { user } = useAuth();
   const {
     showAchievementNotification,
     showMilestoneNotification,
@@ -168,17 +120,35 @@ export const DivineMiningGame: React.FC = () => {
   } = useNotificationSystem();
   
   const [showHelp, setShowHelp] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
-  const [lastSaveStatus, setLastSaveStatus] = useState<'success' | 'error' | 'pending'>('pending');
-  const [saveMessage, setSaveMessage] = useState('');
+  // const [showDebug, ] = useState(false);
+  // const [showStats, setShowStats] = useState(true); // New: Control statistics visibility
+  // const [showAchievements, setShowAchievements] = useState(true); // New: Control achievements visibility
+  const [showRecommendedUpgrades, setShowRecommendedUpgrades] = useState(true); // New: Control recommended upgrades visibility
+  // const [showAllRecommended, setShowAllRecommended] = useState(false); // New: Control showing all recommended upgrades
+  const [, setLastSaveStatus] = useState<'success' | 'error' | 'pending'>('pending');
+  const [, setSaveMessage] = useState('');
   const [miningResumed, setMiningResumed] = useState(false);
   const [showOfflineRewards, setShowOfflineRewards] = useState(false);
   const [offlineRewardNotification, setOfflineRewardNotification] = useState('');
+  const [isNewPlayer, setIsNewPlayer] = useState(false);
+  
+  // Pagination state
+  const [currentUpgradePage, setCurrentUpgradePage] = useState(1);
+  const [upgradesPerPage] = useState(8); // Show 8 upgrades per page (2x4 grid)
+  const [upgradeFilter, setUpgradeFilter] = useState<'all' | 'affordable' | 'recommended' | 'category'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  
+  // Save user data state
+  const [lastUserSaveTime, setLastUserSaveTime] = useState(0);
+  const [isSavingToDatabase, setIsSavingToDatabase] = useState(false);
+  
   const autoSaveRef = useRef<NodeJS.Timeout>();
-  const backupRef = useRef<NodeJS.Timeout>();
+  // const backupRef = useRef<NodeJS.Timeout>();
   const miningIntervalRef = useRef<NodeJS.Timeout>();
+  const userSaveRef = useRef<NodeJS.Timeout>();
 
-  const [achievements, setAchievements] = useState<Achievement[]>([
+  // Get default achievements
+  const getDefaultAchievements = (): Achievement[] => [
     {
       id: 'first-mining',
       name: 'First Mining',
@@ -377,16 +347,14 @@ export const DivineMiningGame: React.FC = () => {
       description: 'Reach 10 energy per second regeneration',
       condition: () => {
         const regenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
-        const burstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
         const totalRegen = regenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-        const totalBurst = burstUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-        return (0.3 + totalRegen + totalBurst) >= 10;
+        return (1 + totalRegen) >= 10;
       },
       unlocked: false
     },
     {
-      id: 'energy-efficiency-god',
-      name: 'Energy Efficiency God',
+      id: 'energy-mastery',
+      name: 'Energy Mastery',
       description: 'Reduce energy cost by 90%',
       condition: () => {
         const efficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
@@ -400,30 +368,93 @@ export const DivineMiningGame: React.FC = () => {
       unlocked: false
     },
     {
-      id: 'auto-miner-master',
-      name: 'Auto-Miner Master',
-      description: 'Purchase Auto Mining upgrade',
-      condition: () => {
-        const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
-        return autoMiningUpgrades.some(u => u.level > 0);
-      },
+      id: 'divine-master',
+      name: 'Divine Master',
+      description: 'Reach 1,000,000,000 points',
+      condition: (state) => state.divinePoints >= 1000000000,
       unlocked: false
     }
-  ]);
+  ];
+
+  // Load achievements from localStorage or use defaults
+  const getInitialAchievements = (): Achievement[] => {
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userAchievementsKey = getUserSpecificKey(ACHIEVEMENTS_KEY, userId);
+    const defaults = getDefaultAchievements();
+    try {
+      const savedAchievements = localStorage.getItem(userAchievementsKey);
+      if (savedAchievements) {
+        const parsed = JSON.parse(savedAchievements);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Merge saved unlocked/unlockedAt into defaults, preserving condition function
+          const merged = defaults.map(defaultAch => {
+            const saved = parsed.find((a: any) => a.id === defaultAch.id);
+            return saved ? {
+              ...defaultAch,
+              unlocked: saved.unlocked ?? defaultAch.unlocked,
+              unlockedAt: saved.unlockedAt ?? defaultAch.unlockedAt
+            } : defaultAch;
+          });
+          console.log('Loaded and merged achievements from localStorage for user:', userId, merged.length);
+          return merged;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading achievements from localStorage for user:', userId, error);
+    }
+    console.log('No valid achievements found for user:', userId, 'using defaults');
+    return defaults;
+  };
+
+  const [achievements, setAchievements] = useState<Achievement[]>(getInitialAchievements);
+
+  // Save achievements to localStorage whenever they change
+  useEffect(() => {
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userAchievementsKey = getUserSpecificKey(ACHIEVEMENTS_KEY, userId);
+    try {
+      localStorage.setItem(userAchievementsKey, JSON.stringify(achievements));
+    } catch (error) {
+      console.error('Error saving achievements to localStorage for user:', userId, error);
+    }
+  }, [achievements, user?.id]);
 
   // Enhanced initial state loading with validation and recovery
   const getInitialState = useCallback((): GameState => {
-    // Load all-time high score from localStorage
-    const allTimeHighScore = parseInt(localStorage.getItem(HIGH_SCORE_KEY) || '100', 10);
+    // Get user-specific keys
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userSaveKey = getUserSpecificKey(SAVE_KEY, userId);
+    const userBackupKey = getUserSpecificKey(BACKUP_KEY, userId);
+    const userHighScoreKey = getUserSpecificKey(HIGH_SCORE_KEY, userId);
+    const userDivinePointsKey = getUserSpecificKey(DIVINE_POINTS_KEY, userId);
+    const userTotalEarnedKey = getUserSpecificKey(TOTAL_EARNED_KEY, userId);
+    const userSessionKey = getUserSpecificKey(SESSION_KEY, userId);
+    const userPrestigeKey = getUserSpecificKey(PRESTIGE_MULTIPLIER_KEY, userId);
     
-    // Load divine points from separate localStorage key
-    const savedDivinePoints = parseInt(localStorage.getItem(DIVINE_POINTS_KEY) || '100', 10);
+    // Check if this is a new player (no saved data for this user)
+    const isNewPlayerCheck = !localStorage.getItem(userSaveKey) && !localStorage.getItem(userDivinePointsKey);
     
-    // Load total earned from separate localStorage key
-    const savedTotalEarned = parseInt(localStorage.getItem(TOTAL_EARNED_KEY) || '0', 10);
+    // Set the new player state
+    setIsNewPlayer(isNewPlayerCheck);
     
-    // Load session data from separate localStorage key
-    const savedSessionData = localStorage.getItem(SESSION_KEY);
+    console.log('User-specific keys:', {
+      userId: user?.id,
+      userSaveKey,
+      userDivinePointsKey,
+      isNewPlayer: isNewPlayerCheck
+    });
+    
+    // Load all-time high score from user-specific localStorage
+    const allTimeHighScore = parseInt(localStorage.getItem(userHighScoreKey) || '100', 10);
+    
+    // Load divine points from user-specific localStorage
+    const savedDivinePoints = parseInt(localStorage.getItem(userDivinePointsKey) || '100', 10);
+    
+    // Load total earned from user-specific localStorage
+    const savedTotalEarned = parseInt(localStorage.getItem(userTotalEarnedKey) || '0', 10);
+    
+    // Load session data from user-specific localStorage
+    const savedSessionData = localStorage.getItem(userSessionKey);
     let sessionStartTime = Date.now();
     let lastDailyReset = new Date().toDateString();
     let lastWeeklyReset = new Date().toDateString();
@@ -440,8 +471,8 @@ export const DivineMiningGame: React.FC = () => {
       }
     }
     
-    // Load prestige multiplier
-    const prestigeMultiplier = parseFloat(localStorage.getItem('divineMiningPrestigeMultiplier') || '1.0');
+    // Load prestige multiplier from user-specific localStorage
+    const prestigeMultiplier = parseFloat(localStorage.getItem(userPrestigeKey) || '1.0');
     
     const defaultState: GameState = {
       divinePoints: Math.max(100, savedDivinePoints),
@@ -469,9 +500,9 @@ export const DivineMiningGame: React.FC = () => {
     };
 
     try {
-      // Try to load main save
-      const saved = localStorage.getItem(SAVE_KEY);
-      console.log('Raw saved data:', saved);
+      // Try to load main save from user-specific key
+      const saved = localStorage.getItem(userSaveKey);
+      console.log('Raw saved data for user:', userId, saved);
       
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -506,14 +537,9 @@ export const DivineMiningGame: React.FC = () => {
             // Apply efficiency bonus to offline earnings
             offlineEarnings = baseOfflineEarnings * (1 + offlineEfficiencyBonus);
             
-            // Calculate energy regeneration during offline time
-            const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
-            const energyBurstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
-            const regenBonus = energyRegenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-            const burstBonus = energyBurstUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-            const baseRegen = 0.3; // Reduced base regen for better balance
-            const totalRegen = baseRegen + regenBonus + burstBonus;
-            offlineEnergyRegen = totalRegen * (timeDiff / 1000);
+            // Calculate energy regeneration during offline time (simplified for initial load)
+            const baseRegen = 0.3; // Base regen rate - will be recalculated after upgrades load
+            offlineEnergyRegen = baseRegen * (timeDiff / 1000);
             
             // Add to unclaimed rewards instead of immediately adding to points
             unclaimedRewards = parsed.unclaimedOfflineRewards || 0;
@@ -570,20 +596,20 @@ export const DivineMiningGame: React.FC = () => {
           throw new Error('Invalid saved state');
         }
       } else {
-        console.log('No saved data found in localStorage');
+        console.log('No saved data found in localStorage for user:', userId);
       }
     } catch (error) {
       console.error('Error loading main save:', error);
       
-      // Try to load backup
+      // Try to load backup from user-specific key
       try {
-        const backup = localStorage.getItem(BACKUP_KEY);
-        console.log('Backup data:', backup);
+        const backup = localStorage.getItem(userBackupKey);
+        console.log('Backup data for user:', userId, backup);
         
         if (backup) {
           const parsedBackup = JSON.parse(backup);
           if (validateGameState(parsedBackup)) {
-            console.log('Recovered from backup');
+            console.log('Recovered from backup for user:', userId);
             setSaveMessage('Game recovered from backup');
             return {
               ...parsedBackup,
@@ -598,8 +624,8 @@ export const DivineMiningGame: React.FC = () => {
         console.error('Error loading backup:', backupError);
       }
       
-      console.log('No valid save data found, starting fresh game');
-      setSaveMessage('Starting fresh game');
+      console.log('No valid save data found for user:', userId, 'starting fresh game');
+      setSaveMessage(isNewPlayerCheck ? 'Welcome new player!' : 'Starting fresh game');
     }
     
     return defaultState;
@@ -659,12 +685,15 @@ export const DivineMiningGame: React.FC = () => {
   
   // Tutorial System State
   const [tutorialState, setTutorialState] = useState<TutorialState>(() => {
-    const savedTutorial = localStorage.getItem(TUTORIAL_KEY);
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userTutorialKey = getUserSpecificKey(TUTORIAL_KEY, userId);
+    
+    const savedTutorial = localStorage.getItem(userTutorialKey);
     if (savedTutorial) {
       try {
         return JSON.parse(savedTutorial);
       } catch (error) {
-        console.error('Error loading tutorial state:', error);
+        console.error('Error loading tutorial state for user:', userId, error);
       }
     }
     
@@ -841,7 +870,9 @@ export const DivineMiningGame: React.FC = () => {
           showTutorial: false,
           highlightElement: null
         };
-        localStorage.setItem(TUTORIAL_KEY, JSON.stringify(completedState));
+        const userId = user?.id ? user.id.toString() : undefined;
+        const userTutorialKey = getUserSpecificKey(TUTORIAL_KEY, userId);
+        localStorage.setItem(userTutorialKey, JSON.stringify(completedState));
         return completedState;
       }
       
@@ -850,7 +881,9 @@ export const DivineMiningGame: React.FC = () => {
         currentStep: nextStep,
         highlightElement: prev.steps[nextStep]?.target || null
       };
-      localStorage.setItem(TUTORIAL_KEY, JSON.stringify(newState));
+      const userId = user?.id ? user.id.toString() : undefined;
+      const userTutorialKey = getUserSpecificKey(TUTORIAL_KEY, userId);
+      localStorage.setItem(userTutorialKey, JSON.stringify(newState));
       return newState;
     });
   }, []);
@@ -864,21 +897,23 @@ export const DivineMiningGame: React.FC = () => {
       highlightElement: null
     };
     setTutorialState(completedState);
-    localStorage.setItem(TUTORIAL_KEY, JSON.stringify(completedState));
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userTutorialKey = getUserSpecificKey(TUTORIAL_KEY, userId);
+    localStorage.setItem(userTutorialKey, JSON.stringify(completedState));
   }, [tutorialState]);
 
-  const resetTutorial = useCallback(() => {
-    const resetState = {
-      isActive: false,
-      currentStep: 0,
-      steps: tutorialSteps,
-      isCompleted: false,
-      showTutorial: false,
-      highlightElement: null
-    };
-    setTutorialState(resetState);
-    localStorage.removeItem(TUTORIAL_KEY);
-  }, []);
+  // const resetTutorial = useCallback(() => {
+  //   const resetState = {
+  //     isActive: false,
+  //     currentStep: 0,
+  //     steps: tutorialSteps,
+  //     isCompleted: false,
+  //     showTutorial: false,
+  //     highlightElement: null
+  //   };
+  //   setTutorialState(resetState);
+  //   localStorage.removeItem(TUTORIAL_KEY);
+  // }, []);
 
   // Check if tutorial should be shown
   useEffect(() => {
@@ -1064,6 +1099,135 @@ export const DivineMiningGame: React.FC = () => {
           border-color: #00ccff;
         }
       }
+      
+      /* Unified Card Frame Design */
+      .game-card-frame {
+        position: relative;
+        background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.6) 100%);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(0, 255, 255, 0.3);
+        border-radius: 16px;
+        padding: 1rem;
+        box-shadow: 
+          0 0 30px rgba(0, 255, 255, 0.1),
+          inset 0 1px 0 rgba(255, 255, 255, 0.1),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        transition: all 0.3s ease;
+      }
+      
+      .game-card-frame::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(135deg, 
+          rgba(0, 255, 255, 0.05) 0%, 
+          rgba(0, 0, 0, 0) 50%, 
+          rgba(0, 255, 255, 0.05) 100%);
+        pointer-events: none;
+        border-radius: 16px;
+      }
+      
+      .game-card-frame:hover {
+        border-color: rgba(0, 255, 255, 0.5);
+        box-shadow: 
+          0 0 40px rgba(0, 255, 255, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.15),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+        transform: translateY(-2px);
+      }
+      
+      .corner-accent {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        border: 2px solid #00ffff;
+        opacity: 0.8;
+        transition: all 0.3s ease;
+      }
+      
+      .corner-accent:hover {
+        opacity: 1;
+        box-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
+      }
+      
+      /* Card Header Styling */
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+      }
+      
+      .card-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        font-size: 0.875rem;
+        letter-spacing: 0.1em;
+        color: #00ffff;
+        text-transform: uppercase;
+      }
+      
+      .card-status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #00ffff;
+        animation: pulse 2s ease-in-out infinite;
+      }
+      
+      /* Card Content Styling */
+      .card-content {
+        position: relative;
+        z-index: 1;
+      }
+      
+      /* Card Footer Styling */
+      .card-footer {
+        margin-top: 1rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid rgba(0, 255, 255, 0.1);
+        font-size: 0.75rem;
+        color: rgba(156, 163, 175, 0.8);
+        text-align: center;
+      }
+      
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        .game-card-frame {
+          padding: 0.75rem;
+          border-radius: 12px;
+        }
+        
+        .corner-accent {
+          width: 10px;
+          height: 10px;
+        }
+      }
+      
+      /* Animation for card entrance */
+      @keyframes cardEntrance {
+        from {
+          opacity: 0;
+          transform: translateY(20px) scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      
+      .game-card-frame {
+        animation: cardEntrance 0.5s ease-out;
+      }
     `;
     document.head.appendChild(style);
     return () => {
@@ -1078,8 +1242,10 @@ export const DivineMiningGame: React.FC = () => {
     // Update the shared context with our points
     setPoints(gameState.divinePoints);
 
-    // Save divine points to localStorage immediately whenever they change
-    localStorage.setItem(DIVINE_POINTS_KEY, gameState.divinePoints.toString());
+    // Save divine points to user-specific localStorage immediately whenever they change
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userDivinePointsKey = getUserSpecificKey(DIVINE_POINTS_KEY, userId);
+    localStorage.setItem(userDivinePointsKey, gameState.divinePoints.toString());
 
     // Check for new high score
     if (gameState.divinePoints > gameState.highScore) {
@@ -1090,8 +1256,9 @@ export const DivineMiningGame: React.FC = () => {
         allTimeHighScore: Math.max(prev.allTimeHighScore, newHighScore)
       }));
       
-      // Save high score to localStorage immediately
-      localStorage.setItem(HIGH_SCORE_KEY, newHighScore.toString());
+      // Save high score to user-specific localStorage immediately
+      const userHighScoreKey = getUserSpecificKey(HIGH_SCORE_KEY, userId);
+      localStorage.setItem(userHighScoreKey, newHighScore.toString());
       
       // Show high score notification only when NOT mining (to avoid spam)
       if (!gameState.isMining) {
@@ -1110,7 +1277,7 @@ export const DivineMiningGame: React.FC = () => {
         }
       }
     }
-  }, [gameState.divinePoints, setPoints, gameState.highScore, gameState.allTimeHighScore]);
+  }, [gameState.divinePoints, setPoints, gameState.highScore, gameState.allTimeHighScore, user?.id]);
 
   // Apply active boosts to mining rate (enhanced version moved after upgrades)
   const getBoostedMiningRate = useCallback(() => {
@@ -1119,219 +1286,521 @@ export const DivineMiningGame: React.FC = () => {
     return gameState.pointsPerSecond * totalMultiplier;
   }, [gameState.pointsPerSecond, activeBoosts]);
 
-  // Calculate offline mining rate with boosts and efficiency bonus
-  const getOfflineMiningRate = useCallback(() => {
-    const miningBoosts = activeBoosts.filter(boost => boost.type === 'mining');
-    const totalMultiplier = miningBoosts.reduce((sum, boost) => sum + boost.multiplier, 1);
-    const baseRate = gameState.pointsPerSecond * totalMultiplier;
+  // // Calculate offline mining rate with boosts and efficiency bonus
+  // const getOfflineMiningRate = useCallback(() => {
+  //   const miningBoosts = activeBoosts.filter(boost => boost.type === 'mining');
+  //   const totalMultiplier = miningBoosts.reduce((sum, boost) => sum + boost.multiplier, 1);
+  //   const baseRate = gameState.pointsPerSecond * totalMultiplier;
     
-    // Apply offline efficiency bonus
-    const offlineBonus = gameState.offlineEfficiencyBonus || 0;
-    return baseRate * (1 + offlineBonus);
-  }, [gameState.pointsPerSecond, gameState.offlineEfficiencyBonus, activeBoosts]);
+  //   // Apply offline efficiency bonus
+  //   const offlineBonus = gameState.offlineEfficiencyBonus || 0;
+  //   return baseRate * (1 + offlineBonus);
+  // }, [gameState.pointsPerSecond, gameState.offlineEfficiencyBonus, activeBoosts]);
 
 
 
-  // Load upgrades from localStorage or use defaults
+  // Load upgrades from localStorage or use defaults with enhanced energy upgrade persistence
   const getInitialUpgrades = (): Upgrade[] => {
+    // Get user-specific keys
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userUpgradesKey = getUserSpecificKey(UPGRADES_KEY, userId);
+    const userUpgradesBackupKey = getUserSpecificKey(UPGRADES_BACKUP_KEY, userId);
+    const userEnergyUpgradesKey = getUserSpecificKey(ENERGY_UPGRADES_KEY, userId);
+    
     try {
-      const savedUpgrades = localStorage.getItem('divineMiningUpgrades');
+      
+      // Try to load from primary storage
+      const savedUpgrades = localStorage.getItem(userUpgradesKey);
       if (savedUpgrades) {
         const parsed = JSON.parse(savedUpgrades);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          console.log('Loaded upgrades from localStorage:', parsed);
+          console.log('Loaded upgrades from primary localStorage for user:', userId, parsed);
+          
+          // Validate energy upgrades specifically
+          const energyUpgrades = parsed.filter(u => u.id.includes('energy'));
+          if (energyUpgrades.length > 0) {
+            console.log('Energy upgrades found:', energyUpgrades.map(u => `${u.id}: LVL ${u.level}`));
+          }
+          
           return parsed;
         }
       }
+      
+      // Try to load from energy-specific backup
+      const energyBackup = localStorage.getItem(userEnergyUpgradesKey);
+      if (energyBackup) {
+        try {
+          const energyData = JSON.parse(energyBackup);
+          if (energyData.energyUpgrades && Array.isArray(energyData.energyUpgrades)) {
+            console.log('Found energy upgrades backup for user:', userId, energyData.energyUpgrades);
+            
+            // If we have energy upgrades but no main upgrades, try to merge with defaults
+            const defaultUpgrades = getDefaultUpgrades();
+            const mergedUpgrades = defaultUpgrades.map(defaultUpgrade => {
+              const energyUpgrade = energyData.energyUpgrades.find((e: any) => e.id === defaultUpgrade.id);
+              return energyUpgrade || defaultUpgrade;
+            });
+            
+            console.log('Merged energy upgrades with defaults for user:', userId);
+            return mergedUpgrades;
+          }
+        } catch (energyError) {
+          console.error('Error loading energy upgrades backup:', energyError);
+        }
+      }
+      
+      // Try to load from general backup
+      const backup = localStorage.getItem(userUpgradesBackupKey);
+      if (backup) {
+        try {
+          const backupData = JSON.parse(backup);
+          if (backupData.upgrades && Array.isArray(backupData.upgrades)) {
+            console.log('Loaded upgrades from backup for user:', userId, backupData.upgrades);
+            return backupData.upgrades;
+          }
+        } catch (backupError) {
+          console.error('Error loading upgrades backup:', backupError);
+        }
+      }
+      
     } catch (error) {
       console.error('Error loading upgrades from localStorage:', error);
     }
     
+    console.log('No valid upgrades found for user:', userId, 'using defaults');
+    return getDefaultUpgrades();
+  };
+
+  // Separate function for default upgrades
+  const getDefaultUpgrades = (): Upgrade[] => {
     // Enhanced default upgrades for better progression
     return [
+      // ===== EARLY GAME UPGRADES (0-10,000 points) =====
       {
         id: 'mining-speed',
         name: 'MINING SPEED',
         level: 0,
+        maxLevel: 20,
         effect: '+0.5/sec',
         baseCost: 25,
-        costMultiplier: 1.12,
-        effectValue: 0.5
+        costMultiplier: 1.15,
+        effectValue: 0.5,
+        category: 'early'
       },
       {
         id: 'mining-capacity',
         name: 'MINING CAPACITY',
         level: 0,
+        maxLevel: 15,
         effect: '+50 capacity',
-        baseCost: 75,
-        costMultiplier: 1.15,
-        effectValue: 50
+        baseCost: 50,
+        costMultiplier: 1.12,
+        effectValue: 50,
+        category: 'early',
+        unlockRequirement: {
+          type: 'points',
+          value: 100
+        }
       },
       {
         id: 'auto-miner',
         name: 'AUTO MINER',
         level: 0,
+        maxLevel: 10,
         effect: '+1.0/sec',
-        baseCost: 200,
+        baseCost: 150,
         costMultiplier: 1.18,
-        effectValue: 1.0
+        effectValue: 1.0,
+        category: 'early',
+        unlockRequirement: {
+          type: 'upgrades',
+          value: 2
+        }
       },
+      
+      // ===== MID GAME UPGRADES (1,000-100,000 points) =====
       {
         id: 'divine-boost',
         name: 'DIVINE BOOST',
         level: 0,
+        maxLevel: 15,
         effect: '+2.0/sec',
-        baseCost: 750,
-        costMultiplier: 1.22,
-        effectValue: 2.0
+        baseCost: 500,
+        costMultiplier: 1.20,
+        effectValue: 2.0,
+        category: 'mid',
+        unlockRequirement: {
+          type: 'points',
+          value: 1000
+        }
       },
       {
         id: 'quantum-miner',
         name: 'QUANTUM MINER',
         level: 0,
+        maxLevel: 12,
         effect: '+5.0/sec',
-        baseCost: 3000,
+        baseCost: 2000,
         costMultiplier: 1.25,
-        effectValue: 5.0
-      },
-      {
-        id: 'cosmic-miner',
-        name: 'COSMIC MINER',
-        level: 0,
-        effect: '+10.0/sec',
-        baseCost: 10000,
-        costMultiplier: 1.3,
-        effectValue: 10.0
-      },
-      {
-        id: 'stellar-miner',
-        name: 'STELLAR MINER',
-        level: 0,
-        effect: '+25.0/sec',
-        baseCost: 50000,
-        costMultiplier: 1.35,
-        effectValue: 25.0
-      },
-      {
-        id: 'galactic-miner',
-        name: 'GALACTIC MINER',
-        level: 0,
-        effect: '+100.0/sec',
-        baseCost: 250000,
-        costMultiplier: 1.4,
-        effectValue: 100.0
+        effectValue: 5.0,
+        category: 'mid',
+        unlockRequirement: {
+          type: 'points',
+          value: 5000
+        }
       },
       {
         id: 'energy-efficiency',
         name: 'ENERGY EFFICIENCY',
         level: 0,
+        maxLevel: 10,
         effect: '-10% energy cost',
-        baseCost: 50000,
-        costMultiplier: 1.5,
-        effectValue: -0.1
+        baseCost: 1000,
+        costMultiplier: 1.30,
+        effectValue: -0.1,
+        category: 'mid',
+        unlockRequirement: {
+          type: 'points',
+          value: 2000
+        }
       },
       {
         id: 'energy-capacity',
         name: 'ENERGY CAPACITY',
         level: 0,
-        effect: '+2000 max energy',
-        baseCost: 75000,
-        costMultiplier: 1.6,
-        effectValue: 2000
+        maxLevel: 8,
+        effect: '+1000 max energy',
+        baseCost: 1500,
+        costMultiplier: 1.35,
+        effectValue: 1000,
+        category: 'mid',
+        unlockRequirement: {
+          type: 'points',
+          value: 3000
+        }
+      },
+      
+      // ===== LATE GAME UPGRADES (10,000-1,000,000 points) =====
+      {
+        id: 'cosmic-miner',
+        name: 'COSMIC MINER',
+        level: 0,
+        maxLevel: 10,
+        effect: '+10.0/sec',
+        baseCost: 8000,
+        costMultiplier: 1.30,
+        effectValue: 10.0,
+        category: 'late',
+        unlockRequirement: {
+          type: 'points',
+          value: 10000
+        }
+      },
+      {
+        id: 'stellar-miner',
+        name: 'STELLAR MINER',
+        level: 0,
+        maxLevel: 8,
+        effect: '+25.0/sec',
+        baseCost: 25000,
+        costMultiplier: 1.35,
+        effectValue: 25.0,
+        category: 'late',
+        unlockRequirement: {
+          type: 'points',
+          value: 25000
+        }
       },
       {
         id: 'energy-regen',
         name: 'ENERGY REGEN',
         level: 0,
-        effect: '+1.0 energy/sec',
-        baseCost: 100000,
-        costMultiplier: 1.7,
-        effectValue: 1.0
-      },
-      {
-        id: 'offline-efficiency',
-        name: 'OFFLINE EFFICIENCY',
-        level: 0,
-        effect: '+5% offline bonus',
-        baseCost: 150000,
-        costMultiplier: 1.8,
-        effectValue: 0.05
-      },
-      {
-        id: 'auto-mining',
-        name: 'AUTO MINING',
-        level: 0,
-        effect: 'Auto-start mining',
-        baseCost: 500000,
-        costMultiplier: 2.0,
-        effectValue: 1
+        maxLevel: 15,
+        effect: '+0.5 energy/sec',
+        baseCost: 5000,
+        costMultiplier: 1.40,
+        effectValue: 0.5,
+        category: 'late',
+        unlockRequirement: {
+          type: 'points',
+          value: 15000
+        }
       },
       {
         id: 'energy-sustain',
         name: 'ENERGY SUSTAIN',
         level: 0,
-        effect: '-20% energy cost',
-        baseCost: 200000,
-        costMultiplier: 1.9,
-        effectValue: -0.2
+        maxLevel: 8,
+        effect: '-15% energy cost',
+        baseCost: 12000,
+        costMultiplier: 1.45,
+        effectValue: -0.15,
+        category: 'late',
+        unlockRequirement: {
+          type: 'points',
+          value: 20000
+        }
       },
       {
-        id: 'divine-resonance',
-        name: 'DIVINE RESONANCE',
+        id: 'offline-efficiency',
+        name: 'OFFLINE EFFICIENCY',
         level: 0,
-        effect: '+50% boost effectiveness',
-        baseCost: 1000000,
-        costMultiplier: 2.5,
-        effectValue: 0.5
+        maxLevel: 5,
+        effect: '+5% offline bonus',
+        baseCost: 20000,
+        costMultiplier: 1.50,
+        effectValue: 0.05,
+        category: 'late',
+        unlockRequirement: {
+          type: 'points',
+          value: 30000
+        }
+      },
+      
+      // ===== END GAME UPGRADES (100,000-10,000,000 points) =====
+      {
+        id: 'galactic-miner',
+        name: 'GALACTIC MINER',
+        level: 0,
+        maxLevel: 5,
+        effect: '+100.0/sec',
+        baseCost: 100000,
+        costMultiplier: 1.40,
+        effectValue: 100.0,
+        category: 'endgame',
+        unlockRequirement: {
+          type: 'points',
+          value: 100000
+        }
+      },
+      {
+        id: 'auto-mining',
+        name: 'AUTO MINING',
+        level: 0,
+        maxLevel: 1,
+        effect: 'Auto-start mining',
+        baseCost: 150000,
+        costMultiplier: 2.0,
+        effectValue: 1,
+        category: 'endgame',
+        unlockRequirement: {
+          type: 'points',
+          value: 150000
+        }
       },
       {
         id: 'energy-overflow',
         name: 'ENERGY OVERFLOW',
         level: 0,
+        maxLevel: 3,
         effect: '+5000 max energy',
-        baseCost: 2000000,
-        costMultiplier: 3.0,
-        effectValue: 5000
+        baseCost: 200000,
+        costMultiplier: 1.60,
+        effectValue: 5000,
+        category: 'endgame',
+        unlockRequirement: {
+          type: 'points',
+          value: 200000
+        }
       },
       {
         id: 'energy-burst',
         name: 'ENERGY BURST',
         level: 0,
-        effect: '+2.0 energy/sec',
-        baseCost: 3000000,
-        costMultiplier: 3.5,
-        effectValue: 2.0
+        maxLevel: 10,
+        effect: '+1.0 energy/sec',
+        baseCost: 300000,
+        costMultiplier: 1.70,
+        effectValue: 1.0,
+        category: 'endgame',
+        unlockRequirement: {
+          type: 'points',
+          value: 300000
+        }
+      },
+      
+      // ===== LEGENDARY UPGRADES (1,000,000+ points) =====
+      {
+        id: 'divine-resonance',
+        name: 'DIVINE RESONANCE',
+        level: 0,
+        maxLevel: 5,
+        effect: '+50% boost effectiveness',
+        baseCost: 500000,
+        costMultiplier: 2.0,
+        effectValue: 0.5,
+        category: 'legendary',
+        unlockRequirement: {
+          type: 'points',
+          value: 1000000
+        }
       },
       {
         id: 'energy-mastery',
         name: 'ENERGY MASTERY',
         level: 0,
-        effect: '-30% energy cost',
+        maxLevel: 4,
+        effect: '-25% energy cost',
+        baseCost: 1000000,
+        costMultiplier: 2.5,
+        effectValue: -0.25,
+        category: 'legendary',
+        unlockRequirement: {
+          type: 'points',
+          value: 2000000
+        }
+      },
+      {
+        id: 'cosmic-resonance',
+        name: 'COSMIC RESONANCE',
+        level: 0,
+        maxLevel: 3,
+        effect: '+200.0/sec',
+        baseCost: 2000000,
+        costMultiplier: 1.80,
+        effectValue: 200.0,
+        category: 'legendary',
+        unlockRequirement: {
+          type: 'points',
+          value: 5000000
+        }
+      },
+      {
+        id: 'stellar-overflow',
+        name: 'STELLAR OVERFLOW',
+        level: 0,
+        maxLevel: 2,
+        effect: '+10000 max energy',
         baseCost: 5000000,
-        costMultiplier: 4.0,
-        effectValue: -0.3
+        costMultiplier: 2.0,
+        effectValue: 10000,
+        category: 'legendary',
+        unlockRequirement: {
+          type: 'points',
+          value: 10000000
+        }
       }
     ];
   };
 
   const [upgrades, setUpgrades] = useState<Upgrade[]>(getInitialUpgrades);
 
+  // Enhanced validation for energy upgrades
+  const validateEnergyUpgrades = useCallback((upgrades: Upgrade[]): boolean => {
+    const energyUpgrades = upgrades.filter(u => u.id.includes('energy'));
+    let isValid = true;
+    
+    energyUpgrades.forEach(upgrade => {
+      // Check if level is within valid range
+      if (upgrade.level < 0 || upgrade.level > upgrade.maxLevel) {
+        console.warn(`Invalid energy upgrade level: ${upgrade.id} = ${upgrade.level}`);
+        isValid = false;
+      }
+      
+      // Check if upgrade has required properties
+      if (!upgrade.effectValue || !upgrade.baseCost) {
+        console.warn(`Invalid energy upgrade properties: ${upgrade.id}`);
+        isValid = false;
+      }
+    });
+    
+    if (isValid) {
+      console.log(`Energy upgrades validation passed: ${energyUpgrades.length} upgrades`);
+    }
+    
+    return isValid;
+  }, []);
+
+  // Validate upgrades on load
+  useEffect(() => {
+    if (upgrades.length > 0) {
+      const isValid = validateEnergyUpgrades(upgrades);
+      if (!isValid) {
+        console.error('Energy upgrades validation failed, attempting recovery...');
+        
+        // Try to recover from energy-specific backup
+        try {
+          const userId = user?.id ? user.id.toString() : undefined;
+          const userEnergyUpgradesKey = getUserSpecificKey(ENERGY_UPGRADES_KEY, userId);
+          const userUpgradesKey = getUserSpecificKey(UPGRADES_KEY, userId);
+          
+          const energyBackup = localStorage.getItem(userEnergyUpgradesKey);
+          if (energyBackup) {
+            const energyData = JSON.parse(energyBackup);
+            if (energyData.energyUpgrades && Array.isArray(energyData.energyUpgrades)) {
+              const defaultUpgrades = getDefaultUpgrades();
+              const recoveredUpgrades = defaultUpgrades.map(defaultUpgrade => {
+                const energyUpgrade = energyData.energyUpgrades.find((e: any) => e.id === defaultUpgrade.id);
+                return energyUpgrade || defaultUpgrade;
+              });
+              
+              setUpgrades(recoveredUpgrades);
+              localStorage.setItem(userUpgradesKey, JSON.stringify(recoveredUpgrades));
+              console.log('Recovered energy upgrades from backup for user:', userId);
+              showSystemNotification('Recovery', 'Energy upgrades recovered from backup!', 'success');
+            }
+          }
+        } catch (error) {
+          console.error('Failed to recover energy upgrades:', error);
+        }
+      }
+    }
+  }, [upgrades, validateEnergyUpgrades, showSystemNotification]);
+
+  // Energy capacity sync effect - runs after upgrades are loaded
+  useEffect(() => {
+    if (upgrades.length > 0 && hasLoadedSavedData) {
+      // Calculate energy capacity from upgrades
+      const energyCapacityUpgrades = upgrades.filter(u => u.id === 'energy-capacity' || u.id === 'energy-overflow');
+      const calculatedMaxEnergy = 1000 + energyCapacityUpgrades.reduce((sum, upgrade) => sum + (upgrade.effectValue * upgrade.level), 0);
+      
+      setGameState(prev => {
+        // Only update if the calculated energy capacity is different from current
+        if (prev.maxEnergy !== calculatedMaxEnergy) {
+          console.log(`Syncing energy capacity: ${prev.maxEnergy} -> ${calculatedMaxEnergy}`);
+          console.log('Energy capacity upgrades:', energyCapacityUpgrades.map(u => `${u.id}: LVL ${u.level} (+${u.effectValue})`));
+          return {
+            ...prev,
+            maxEnergy: calculatedMaxEnergy,
+            currentEnergy: Math.min(prev.currentEnergy, calculatedMaxEnergy)
+          };
+        }
+        return prev;
+      });
+    }
+  }, [upgrades, hasLoadedSavedData]);
+
+  // // Debug function to check energy capacity state
+  // const debugEnergyCapacity = useCallback(() => {
+  //   const energyCapacityUpgrades = upgrades.filter(u => u.id === 'energy-capacity' || u.id === 'energy-overflow');
+  //   const calculatedMaxEnergy = 1000 + energyCapacityUpgrades.reduce((sum, upgrade) => sum + (upgrade.effectValue * upgrade.level), 0);
+    
+  //   console.log('=== ENERGY CAPACITY DEBUG ===');
+  //   console.log('Current maxEnergy:', gameState.maxEnergy);
+  //   console.log('Calculated maxEnergy:', calculatedMaxEnergy);
+  //   console.log('Energy capacity upgrades:', energyCapacityUpgrades.map(u => `${u.id}: LVL ${u.level} (+${u.effectValue})`));
+  //   console.log('Total energy capacity bonus:', energyCapacityUpgrades.reduce((sum, upgrade) => sum + (upgrade.effectValue * upgrade.level), 0));
+  //   console.log('Has loaded saved data:', hasLoadedSavedData);
+  //   console.log('Upgrades loaded:', upgrades.length);
+  //   console.log('=============================');
+  // }, [upgrades, gameState.maxEnergy, hasLoadedSavedData]);
+
   // Calculate potential offline earnings
-  const getPotentialOfflineEarnings = useCallback((hoursOffline: number = 24) => {
-    const secondsOffline = hoursOffline * 60 * 60;
-    const baseEarnings = getOfflineMiningRate() * secondsOffline;
+  // const getPotentialOfflineEarnings = useCallback((hoursOffline: number = 24) => {
+  //   const secondsOffline = hoursOffline * 60 * 60;
+  //   const baseEarnings = getOfflineMiningRate() * secondsOffline;
     
-    // Calculate efficiency bonus for the time period
-    const daysOffline = hoursOffline / 24;
-    const efficiencyBonus = Math.min(daysOffline * OFFLINE_EFFICIENCY_BONUS, 1.4);
+  //   // Calculate efficiency bonus for the time period
+  //   const daysOffline = hoursOffline / 24;
+  //   const efficiencyBonus = Math.min(daysOffline * OFFLINE_EFFICIENCY_BONUS, 1.4);
     
-    return {
-      baseEarnings,
-      efficiencyBonus,
-      totalEarnings: baseEarnings * (1 + efficiencyBonus),
-      energyRegen: (0.5 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0)) * secondsOffline
-    };
-  }, [getOfflineMiningRate, upgrades]);
+  //   return {
+  //     baseEarnings,
+  //     efficiencyBonus,
+  //     totalEarnings: baseEarnings * (1 + efficiencyBonus),
+  //     energyRegen: (0.5 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0)) * secondsOffline
+  //   };
+  // }, [getOfflineMiningRate, upgrades]);
 
   // Enhanced mining rate calculation with divine resonance
   const getEnhancedMiningRate = useCallback(() => {
@@ -1351,6 +1820,10 @@ export const DivineMiningGame: React.FC = () => {
     const totalUpgradeEffect = upgrades.reduce((sum, upgrade) => sum + (upgrade.effectValue * upgrade.level), 0);
     const totalUpgradesPurchased = upgrades.reduce((sum, upgrade) => sum + upgrade.level, 0);
     
+    // Calculate energy capacity from upgrades
+    const energyCapacityUpgrades = upgrades.filter(u => u.id === 'energy-capacity' || u.id === 'energy-overflow');
+    const calculatedMaxEnergy = 1000 + energyCapacityUpgrades.reduce((sum, upgrade) => sum + (upgrade.effectValue * upgrade.level), 0);
+    
     setGameState(prev => {
       const newPointsPerSecond = 1.0 + totalUpgradeEffect;
       const newUpgradesPurchased = totalUpgradesPurchased;
@@ -1358,6 +1831,8 @@ export const DivineMiningGame: React.FC = () => {
       console.log('Upgrade sync check:', {
         currentPPS: prev.pointsPerSecond,
         newPPS: newPointsPerSecond,
+        currentMaxEnergy: prev.maxEnergy,
+        calculatedMaxEnergy: calculatedMaxEnergy,
         currentUpgrades: prev.upgradesPurchased,
         newUpgrades: newUpgradesPurchased,
         currentPoints: prev.divinePoints,
@@ -1370,16 +1845,27 @@ export const DivineMiningGame: React.FC = () => {
       // 2. OR if upgrade levels have actually changed from what's saved
       const isFreshStart = prev.divinePoints === 100 && prev.pointsPerSecond === 1.0 && prev.upgradesPurchased === 0;
       const upgradesChanged = prev.upgradesPurchased !== newUpgradesPurchased;
+      const energyCapacityChanged = prev.maxEnergy !== calculatedMaxEnergy;
       const shouldPreserveSavedData = hasLoadedSavedData && prev.divinePoints > 100;
       
-      if ((isFreshStart && !shouldPreserveSavedData) || (upgradesChanged && !shouldPreserveSavedData)) {
+      if ((isFreshStart && !shouldPreserveSavedData) || (upgradesChanged && !shouldPreserveSavedData) || (energyCapacityChanged && !shouldPreserveSavedData)) {
         console.log(`Syncing game state: ${isFreshStart ? 'Fresh start' : 'Upgrades changed'}`);
-        console.log(`PPS ${prev.pointsPerSecond} -> ${newPointsPerSecond}, Upgrades ${prev.upgradesPurchased} -> ${newUpgradesPurchased}`);
-        return {
+        console.log(`PPS ${prev.pointsPerSecond} -> ${newPointsPerSecond}, Upgrades ${prev.upgradesPurchased} -> ${newUpgradesPurchased}, MaxEnergy ${prev.maxEnergy} -> ${calculatedMaxEnergy}`);
+        
+        const newState = {
           ...prev,
           pointsPerSecond: newPointsPerSecond,
           upgradesPurchased: newUpgradesPurchased
         };
+        
+        // Only update energy capacity if it's actually different and we're not preserving saved data
+        if (energyCapacityChanged && !shouldPreserveSavedData) {
+          newState.maxEnergy = calculatedMaxEnergy;
+          newState.currentEnergy = Math.min(prev.currentEnergy, calculatedMaxEnergy);
+          console.log(`Energy capacity updated: ${prev.maxEnergy} -> ${calculatedMaxEnergy}`);
+        }
+        
+        return newState;
       } else {
         console.log('Skipping upgrade sync - preserving saved state');
         return prev;
@@ -1431,10 +1917,19 @@ export const DivineMiningGame: React.FC = () => {
         lastSaveTime: Date.now()
       };
       
-      const key = isBackup ? BACKUP_KEY : SAVE_KEY;
+      // Get user-specific keys
+      const userId = user?.id ? user.id.toString() : undefined;
+      const userSaveKey = getUserSpecificKey(SAVE_KEY, userId);
+      const userBackupKey = getUserSpecificKey(BACKUP_KEY, userId);
+      const userHighScoreKey = getUserSpecificKey(HIGH_SCORE_KEY, userId);
+      const userDivinePointsKey = getUserSpecificKey(DIVINE_POINTS_KEY, userId);
+      const userTotalEarnedKey = getUserSpecificKey(TOTAL_EARNED_KEY, userId);
+      const userSessionKey = getUserSpecificKey(SESSION_KEY, userId);
+      
+      const key = isBackup ? userBackupKey : userSaveKey;
       const saveString = JSON.stringify(saveData);
       
-      console.log(`Saving to ${key}:`, {
+      console.log(`Saving to ${key} for user ${userId}:`, {
         divinePoints: saveData.divinePoints,
         pointsPerSecond: saveData.pointsPerSecond,
         isMining: saveData.isMining,
@@ -1446,9 +1941,9 @@ export const DivineMiningGame: React.FC = () => {
       
       // Also save high score and divine points separately for redundancy
       if (!isBackup) {
-        localStorage.setItem(HIGH_SCORE_KEY, saveData.allTimeHighScore.toString());
-        localStorage.setItem(DIVINE_POINTS_KEY, saveData.divinePoints.toString());
-        localStorage.setItem(TOTAL_EARNED_KEY, saveData.totalPointsEarned.toString());
+        localStorage.setItem(userHighScoreKey, saveData.allTimeHighScore.toString());
+        localStorage.setItem(userDivinePointsKey, saveData.divinePoints.toString());
+        localStorage.setItem(userTotalEarnedKey, saveData.totalPointsEarned.toString());
         
         // Save session data separately
         const sessionData = {
@@ -1458,7 +1953,7 @@ export const DivineMiningGame: React.FC = () => {
           lastSaveTime: saveData.lastSaveTime,
           version: saveData.version
         };
-        localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+        localStorage.setItem(userSessionKey, JSON.stringify(sessionData));
       }
       
       // Verify the save was written correctly
@@ -1476,7 +1971,7 @@ export const DivineMiningGame: React.FC = () => {
         setTimeout(() => setSaveMessage(''), 3000);
       }
       
-      console.log(`Save to ${key} successful`);
+      console.log(`Save to ${key} successful for user ${userId}`);
       return true;
     } catch (error) {
       console.error('Error saving game state:', error);
@@ -1489,7 +1984,7 @@ export const DivineMiningGame: React.FC = () => {
       }
       return false;
     }
-  }, []);
+  }, [user?.id]);
 
   // Auto-save effect
   useEffect(() => {
@@ -1527,22 +2022,39 @@ export const DivineMiningGame: React.FC = () => {
     };
   }, []);
 
-  // Backup timer
+  // Energy upgrades backup timer - more frequent backups for critical upgrades
   useEffect(() => {
-    backupRef.current = setInterval(() => {
-      const saveData = {
-        ...gameState,
-        lastSaveTime: Date.now()
-      };
-      saveGameState(saveData, true);
-    }, BACKUP_INTERVAL);
+    const energyBackupInterval = setInterval(() => {
+      try {
+        const userId = user?.id ? user.id.toString() : undefined;
+        const userEnergyUpgradesKey = getUserSpecificKey(ENERGY_UPGRADES_KEY, userId);
+        
+        const energyUpgrades = upgrades.filter(u => u.id.includes('energy'));
+        if (energyUpgrades.length > 0) {
+          const energyBackupData = {
+            energyUpgrades: energyUpgrades,
+            lastUpdate: Date.now(),
+            version: GAME_VERSION,
+            userId: userId,
+            gameState: {
+              maxEnergy: gameState.maxEnergy,
+              currentEnergy: gameState.currentEnergy,
+              lastEnergyRegen: gameState.lastEnergyRegen
+            }
+          };
+          
+          localStorage.setItem(userEnergyUpgradesKey, JSON.stringify(energyBackupData));
+          console.log(`Energy upgrades backup created for user ${userId}: ${energyUpgrades.length} upgrades`);
+        }
+      } catch (error) {
+        console.error('Error creating energy upgrades backup:', error);
+      }
+    }, 60000); // Backup energy upgrades every minute
 
     return () => {
-      if (backupRef.current) {
-        clearInterval(backupRef.current);
-      }
+      clearInterval(energyBackupInterval);
     };
-  }, [gameState, saveGameState]);
+  }, [upgrades, gameState.maxEnergy, gameState.currentEnergy, gameState.lastEnergyRegen, user?.id]);
 
   
 
@@ -1615,11 +2127,17 @@ export const DivineMiningGame: React.FC = () => {
     }
   }, [gameState.unclaimedOfflineRewards, gameState.offlineEfficiencyBonus, showOfflineRewards, showOfflineRewardsNotification, claimOfflineRewards]);
 
-  // Enhanced purchase upgrade with validation
+  // Enhanced purchase upgrade with validation and persistent saving
   const purchaseUpgrade = useCallback((upgradeId: string) => {
     const upgrade = upgrades.find(u => u.id === upgradeId);
     if (!upgrade) {
       console.error('Upgrade not found:', upgradeId);
+      return;
+    }
+
+    // Check if upgrade is already at max level
+    if (upgrade.level >= upgrade.maxLevel) {
+      showSystemNotification('Upgrade Maxed', `${upgrade.name} is already at maximum level!`, 'warning');
       return;
     }
 
@@ -1633,26 +2151,23 @@ export const DivineMiningGame: React.FC = () => {
           upgradesPurchased: prev.upgradesPurchased + 1
         };
         
-        // Handle special upgrades
-        if (upgradeId === 'energy-capacity') {
+        // Handle special upgrades with immediate state updates
+        if (upgradeId === 'energy-capacity' || upgradeId === 'energy-overflow') {
+          const newMaxEnergy = prev.maxEnergy + upgrade.effectValue;
           newState = {
             ...newState,
-            maxEnergy: prev.maxEnergy + upgrade.effectValue,
-            currentEnergy: Math.min(prev.currentEnergy, prev.maxEnergy + upgrade.effectValue)
+            maxEnergy: newMaxEnergy,
+            currentEnergy: Math.min(prev.currentEnergy, newMaxEnergy)
           };
-        } else if (upgradeId === 'energy-overflow') {
-          newState = {
-            ...newState,
-            maxEnergy: prev.maxEnergy + upgrade.effectValue,
-            currentEnergy: Math.min(prev.currentEnergy, prev.maxEnergy + upgrade.effectValue)
-          };
+          console.log(`Energy capacity upgraded: ${prev.maxEnergy} -> ${newMaxEnergy}`);
         } else if (upgradeId.startsWith('mining-') || upgradeId === 'auto-miner' || upgradeId === 'divine-boost' || 
                    upgradeId === 'quantum-miner' || upgradeId === 'cosmic-miner' || upgradeId === 'stellar-miner' || 
-                   upgradeId === 'galactic-miner') {
+                   upgradeId === 'galactic-miner' || upgradeId === 'cosmic-resonance') {
           newState = {
             ...newState,
             pointsPerSecond: prev.pointsPerSecond + upgrade.effectValue
           };
+          console.log(`Mining speed upgraded: ${prev.pointsPerSecond} -> ${newState.pointsPerSecond}`);
         }
         
         return newState;
@@ -1665,16 +2180,92 @@ export const DivineMiningGame: React.FC = () => {
             : u
         );
         
-        // Save upgrades to localStorage immediately
+        // CRITICAL: Save upgrades to localStorage immediately with multiple backup methods
         try {
-          localStorage.setItem('divineMiningUpgrades', JSON.stringify(updatedUpgrades));
-          console.log('Upgrades saved to localStorage');
+          // Get user-specific keys
+          const userId = user?.id ? user.id.toString() : undefined;
+          const userUpgradesKey = getUserSpecificKey(UPGRADES_KEY, userId);
+          const userUpgradesBackupKey = getUserSpecificKey(UPGRADES_BACKUP_KEY, userId);
+          const userEnergyUpgradesKey = getUserSpecificKey(ENERGY_UPGRADES_KEY, userId);
+          
+          // Primary save
+          localStorage.setItem(userUpgradesKey, JSON.stringify(updatedUpgrades));
+          
+          // Backup save with timestamp
+          const backupData = {
+            upgrades: updatedUpgrades,
+            timestamp: Date.now(),
+            version: GAME_VERSION,
+            upgradeId: upgradeId,
+            level: upgrade.level + 1,
+            userId: userId
+          };
+          localStorage.setItem(userUpgradesBackupKey, JSON.stringify(backupData));
+          
+          // Energy upgrades get extra backup
+          if (upgradeId.includes('energy')) {
+            localStorage.setItem(userEnergyUpgradesKey, JSON.stringify({
+              energyUpgrades: updatedUpgrades.filter(u => u.id.includes('energy')),
+              lastUpdate: Date.now(),
+              version: GAME_VERSION,
+              userId: userId
+            }));
+            console.log(`Energy upgrade ${upgradeId} saved with extra backup for user:`, userId);
+          }
+          
+          // Verify the save was written correctly
+          const verifySave = localStorage.getItem(userUpgradesKey);
+          if (!verifySave) {
+            throw new Error('Save verification failed - no data written');
+          }
+          
+          const parsedVerify = JSON.parse(verifySave);
+          if (!Array.isArray(parsedVerify) || parsedVerify.length === 0) {
+            throw new Error('Save verification failed - invalid data structure');
+          }
+          
+          console.log(`Upgrade ${upgradeId} saved successfully to localStorage with backup for user:`, userId);
           
           // Show upgrade notification
           showUpgradeNotification(upgrade.name, cost);
+          
+          // Force immediate game state save for critical upgrades
+          if (upgradeId.includes('energy') || upgradeId === 'auto-mining') {
+            setTimeout(() => {
+              const currentState = {
+                ...gameState,
+                divinePoints: gameState.divinePoints - cost,
+                upgradesPurchased: gameState.upgradesPurchased + 1,
+                lastSaveTime: Date.now()
+              };
+              saveGameState(currentState);
+              console.log(`Critical upgrade ${upgradeId} - forced immediate game state save for user:`, userId);
+            }, 100);
+          }
+          
         } catch (error) {
           console.error('Error saving upgrades:', error);
-          showSystemNotification('Upgrade Error', 'Failed to save upgrade!', 'error');
+          showSystemNotification('Upgrade Error', 'Failed to save upgrade! Trying backup...', 'error');
+          
+          // Try to recover from backup
+          try {
+            const userId = user?.id ? user.id.toString() : undefined;
+            const userUpgradesKey = getUserSpecificKey(UPGRADES_KEY, userId);
+            const userUpgradesBackupKey = getUserSpecificKey(UPGRADES_BACKUP_KEY, userId);
+            
+            const backup = localStorage.getItem(userUpgradesBackupKey);
+            if (backup) {
+              const backupData = JSON.parse(backup);
+              if (backupData.upgrades && Array.isArray(backupData.upgrades)) {
+                localStorage.setItem(userUpgradesKey, JSON.stringify(backupData.upgrades));
+                console.log('Recovered upgrades from backup for user:', userId);
+                showSystemNotification('Recovery Success', 'Upgrades recovered from backup!', 'success');
+              }
+            }
+          } catch (backupError) {
+            console.error('Backup recovery failed:', backupError);
+            showSystemNotification('Critical Error', 'Failed to save or recover upgrades!', 'error');
+          }
         }
         
         return updatedUpgrades;
@@ -1684,7 +2275,7 @@ export const DivineMiningGame: React.FC = () => {
     } else {
       showSystemNotification('Insufficient Points', 'Not enough points for this upgrade!', 'warning');
     }
-  }, [upgrades, gameState.divinePoints, showUpgradeNotification, showSystemNotification]);
+  }, [upgrades, gameState, showUpgradeNotification, showSystemNotification, saveGameState]);
 
   // Enhanced number formatting
   const formatNumber = useCallback((num: number): string => {
@@ -1699,12 +2290,270 @@ export const DivineMiningGame: React.FC = () => {
   }, []);
 
   const getUpgradeCost = useCallback((upgrade: Upgrade): number => {
-    return Math.floor(upgrade.baseCost * Math.pow(upgrade.costMultiplier, upgrade.level));
+    // Regulated cost calculation with diminishing returns
+    const baseCost = upgrade.baseCost;
+    const multiplier = upgrade.costMultiplier;
+    const level = upgrade.level;
+    
+    // Apply diminishing returns after level 10
+    let adjustedMultiplier = multiplier;
+    if (level >= 10) {
+      const overLevel = level - 9; // Levels beyond 10
+      const diminishingFactor = Math.max(0.8, 1 - (overLevel * 0.02)); // Reduce multiplier by 2% per level after 10
+      adjustedMultiplier = multiplier * diminishingFactor;
+    }
+    
+    // Cap the maximum cost to prevent exponential explosion
+    const maxCost = baseCost * 1000; // Maximum 1000x base cost
+    const calculatedCost = Math.floor(baseCost * Math.pow(adjustedMultiplier, level));
+    
+    return Math.min(calculatedCost, maxCost);
   }, []);
 
+  // Get upgrade category color for visual organization
+  const getUpgradeCategoryColor = useCallback((category?: string): string => {
+    switch (category) {
+      case 'early': return 'text-green-400 border-green-400';
+      case 'mid': return 'text-blue-400 border-blue-400';
+      case 'late': return 'text-purple-400 border-purple-400';
+      case 'endgame': return 'text-yellow-400 border-yellow-400';
+      case 'legendary': return 'text-red-400 border-red-400';
+      default: return 'text-cyan-400 border-cyan-400';
+    }
+  }, []);
+
+  // Get upgrade category background for visual organization
+  const getUpgradeCategoryBg = useCallback((category?: string): string => {
+    switch (category) {
+      case 'early': return 'bg-green-900/20 border-green-500/30';
+      case 'mid': return 'bg-blue-900/20 border-blue-500/30';
+      case 'late': return 'bg-purple-900/20 border-purple-500/30';
+      case 'endgame': return 'bg-yellow-900/20 border-yellow-500/30';
+      case 'legendary': return 'bg-red-900/20 border-red-500/30';
+      default: return 'bg-gray-800/50 border-cyan-500/30';
+    }
+  }, []);
+
+  // Check if upgrade is affordable with current points
   const canAffordUpgrade = useCallback((upgrade: Upgrade): boolean => {
     return gameState.divinePoints >= getUpgradeCost(upgrade);
   }, [gameState.divinePoints, getUpgradeCost]);
+
+  // Check if upgrade has reached max level
+  const isUpgradeMaxed = useCallback((upgrade: Upgrade): boolean => {
+    return upgrade.level >= upgrade.maxLevel;
+  }, []);
+
+  // Check if upgrade can be purchased (affordable and not maxed)
+  const canPurchaseUpgrade = useCallback((upgrade: Upgrade): boolean => {
+    return canAffordUpgrade(upgrade) && !isUpgradeMaxed(upgrade);
+  }, [canAffordUpgrade, isUpgradeMaxed]);
+
+  // // Check if upgrade is unlocked based on requirements
+  // const isUpgradeUnlocked = useCallback((upgrade: Upgrade): boolean => {
+  //   if (!upgrade.unlockRequirement) return true; // No requirement = always unlocked
+    
+  //   const { type, value, category } = upgrade.unlockRequirement;
+    
+  //   switch (type) {
+  //     case 'points':
+  //       return gameState.divinePoints >= value;
+  //     case 'upgrades':
+  //       return gameState.upgradesPurchased >= value;
+  //     case 'level':
+  //       // Check if any upgrade in the category has reached the required level
+  //       if (category) {
+  //         const categoryUpgrades = upgrades.filter(u => u.category === category);
+  //         return categoryUpgrades.some(u => u.level >= value);
+  //       }
+  //       return false;
+  //     case 'category':
+  //       // Check if player has reached a certain category milestone
+  //       const currentPoints = gameState.divinePoints;
+  //       if (category === 'mid' && currentPoints >= 1000) return true;
+  //       if (category === 'late' && currentPoints >= 10000) return true;
+  //       if (category === 'endgame' && currentPoints >= 100000) return true;
+  //       if (category === 'legendary' && currentPoints >= 1000000) return true;
+  //       return false;
+  //     default:
+  //       return true;
+  //   }
+  // }, [gameState.divinePoints, gameState.upgradesPurchased, upgrades]);
+
+  // // Get unlock requirement text for display
+  // const getUnlockRequirementText = useCallback((upgrade: Upgrade): string => {
+  //   if (!upgrade.unlockRequirement) return '';
+    
+  //   const { type, value, category } = upgrade.unlockRequirement;
+    
+  //   switch (type) {
+  //     case 'points':
+  //       return `Requires ${formatNumber(value)} points`;
+  //     case 'upgrades':
+  //       return `Requires ${value} upgrades purchased`;
+  //     case 'level':
+  //       return `Requires level ${value} in ${category} category`;
+  //     case 'category':
+  //       return `Requires ${category} tier`;
+  //     default:
+  //       return '';
+  //   }
+  // }, [formatNumber]);
+
+  // Get upgrade efficiency rating (cost per effect)
+  const getUpgradeEfficiency = useCallback((upgrade: Upgrade): number => {
+    const cost = getUpgradeCost(upgrade);
+    const effect = Math.abs(upgrade.effectValue);
+    return cost / effect;
+  }, [getUpgradeCost]);
+
+  // Get recommended upgrades based on current progress
+  const getRecommendedUpgrades = useCallback((): Upgrade[] => {
+    const currentPoints = gameState.divinePoints;
+    
+    // Filter upgrades by affordability, category progression, and not maxed
+    return upgrades.filter(upgrade => {
+      const cost = getUpgradeCost(upgrade);
+      const isAffordable = currentPoints >= cost * 0.5; // Show if can afford 50% of cost
+      const notMaxed = !isUpgradeMaxed(upgrade);
+      
+      // Early game: focus on basic upgrades
+      if (currentPoints < 1000) {
+        return upgrade.category === 'early' && isAffordable && notMaxed;
+      }
+      
+      // Mid game: introduce energy management
+      if (currentPoints < 10000) {
+        return (upgrade.category === 'early' || upgrade.category === 'mid') && isAffordable && notMaxed;
+      }
+      
+      // Late game: focus on efficiency
+      if (currentPoints < 100000) {
+        return (upgrade.category === 'mid' || upgrade.category === 'late') && isAffordable && notMaxed;
+      }
+      
+      // End game: all upgrades except legendary
+      if (currentPoints < 1000000) {
+        return upgrade.category !== 'legendary' && isAffordable && notMaxed;
+      }
+      
+      // Legendary: all upgrades
+      return isAffordable && notMaxed;
+    }).sort((a, b) => getUpgradeEfficiency(a) - getUpgradeEfficiency(b)); // Sort by efficiency
+  }, [upgrades, gameState.divinePoints, getUpgradeCost, getUpgradeEfficiency, isUpgradeMaxed]);
+
+  // Smart filtering and pagination functions
+  const getFilteredUpgrades = useCallback((): Upgrade[] => {
+    let filteredUpgrades: Upgrade[] = [];
+    
+    switch (upgradeFilter) {
+      case 'all':
+        filteredUpgrades = upgrades;
+        break;
+      case 'affordable':
+        filteredUpgrades = upgrades.filter(upgrade => canAffordUpgrade(upgrade) && !isUpgradeMaxed(upgrade));
+        break;
+      case 'recommended':
+        filteredUpgrades = getRecommendedUpgrades();
+        break;
+      case 'category':
+        if (selectedCategory === 'all') {
+          filteredUpgrades = upgrades;
+        } else {
+          filteredUpgrades = upgrades.filter(upgrade => upgrade.category === selectedCategory);
+        }
+        break;
+      default:
+        filteredUpgrades = upgrades;
+    }
+    
+    // Sort by efficiency for better user experience
+    return filteredUpgrades.sort((a, b) => getUpgradeEfficiency(a) - getUpgradeEfficiency(b));
+  }, [upgrades, upgradeFilter, selectedCategory, canAffordUpgrade, isUpgradeMaxed, getRecommendedUpgrades, getUpgradeEfficiency]);
+
+  const getPaginatedUpgrades = useCallback((): Upgrade[] => {
+    const filteredUpgrades = getFilteredUpgrades();
+    const startIndex = (currentUpgradePage - 1) * upgradesPerPage;
+    const endIndex = startIndex + upgradesPerPage;
+    return filteredUpgrades.slice(startIndex, endIndex);
+  }, [getFilteredUpgrades, currentUpgradePage, upgradesPerPage]);
+
+  const getTotalPages = useCallback((): number => {
+    const filteredUpgrades = getFilteredUpgrades();
+    return Math.ceil(filteredUpgrades.length / upgradesPerPage);
+  }, [getFilteredUpgrades, upgradesPerPage]);
+
+  // Reset to first page when filter changes
+  useEffect(() => {
+    setCurrentUpgradePage(1);
+  }, [upgradeFilter, selectedCategory]);
+
+  // Auto-adjust page when current page becomes invalid
+  useEffect(() => {
+    const totalPages = getTotalPages();
+    if (currentUpgradePage > totalPages && totalPages > 0) {
+      setCurrentUpgradePage(totalPages);
+    }
+  }, [currentUpgradePage, getTotalPages]);
+
+  // Get available categories for filtering
+  const getAvailableCategories = useCallback((): string[] => {
+    const categories = new Set(upgrades.map(upgrade => upgrade.category).filter((category): category is string => Boolean(category)));
+    return ['all', ...Array.from(categories)];
+  }, [upgrades]);
+
+  // Get category display name
+  const getCategoryDisplayName = useCallback((category: string): string => {
+    switch (category) {
+      case 'all': return 'ALL UPGRADES';
+      case 'early': return 'EARLY GAME';
+      case 'mid': return 'MID GAME';
+      case 'late': return 'LATE GAME';
+      case 'endgame': return 'END GAME';
+      case 'legendary': return 'LEGENDARY';
+      default: return category.toUpperCase();
+    }
+  }, []);
+
+  // Get filter display name
+  const getFilterDisplayName = useCallback((filter: string): string => {
+    switch (filter) {
+      case 'all': return 'ALL';
+      case 'affordable': return 'AFFORDABLE';
+      case 'recommended': return 'RECOMMENDED';
+      case 'category': return 'CATEGORY';
+      default: return filter.toUpperCase();
+    }
+  }, []);
+
+  // Analyze upgrade pricing and provide recommendations
+  const analyzeUpgradePricing = useCallback(() => {
+    const currentPoints = gameState.divinePoints;
+    const affordableUpgrades = upgrades.filter(u => canAffordUpgrade(u));
+    const recommendedUpgrades = getRecommendedUpgrades();
+    const maxedUpgrades = upgrades.filter(u => isUpgradeMaxed(u));
+    
+    const analysis = {
+      totalUpgrades: upgrades.length,
+      affordableCount: affordableUpgrades.length,
+      recommendedCount: recommendedUpgrades.length,
+      maxedCount: maxedUpgrades.length,
+      currentCategory: currentPoints < 1000 ? 'early' : 
+                      currentPoints < 10000 ? 'mid' : 
+                      currentPoints < 100000 ? 'late' : 
+                      currentPoints < 1000000 ? 'endgame' : 'legendary',
+      bestValueUpgrade: recommendedUpgrades[0] || null,
+      nextMilestone: currentPoints < 1000 ? 1000 : 
+                    currentPoints < 10000 ? 10000 : 
+                    currentPoints < 100000 ? 100000 : 
+                    currentPoints < 1000000 ? 1000000 : 10000000,
+      pointsToNextMilestone: 0
+    };
+    
+    analysis.pointsToNextMilestone = analysis.nextMilestone - currentPoints;
+    
+    return analysis;
+  }, [upgrades, gameState.divinePoints, canAffordUpgrade, getRecommendedUpgrades, isUpgradeMaxed]);
 
   const getSessionDuration = useCallback((): string => {
     const duration = Date.now() - gameState.sessionStartTime;
@@ -1714,150 +2563,150 @@ export const DivineMiningGame: React.FC = () => {
   }, [gameState.sessionStartTime]);
 
   // Enhanced reset game with confirmation and backup
-  const resetGame = useCallback(() => {
-    if (window.confirm('Are you sure you want to reset your progress? This cannot be undone!')) {
-      if (window.confirm('Final warning: This will delete all your progress. Continue?')) {
-        localStorage.removeItem(SAVE_KEY);
-        localStorage.removeItem(BACKUP_KEY);
-        localStorage.removeItem('divineMiningUpgrades');
-        localStorage.removeItem(HIGH_SCORE_KEY);
-        localStorage.removeItem(DIVINE_POINTS_KEY);
-        localStorage.removeItem(TOTAL_EARNED_KEY);
-        localStorage.removeItem(SESSION_KEY);
-        localStorage.removeItem('divineMiningPrestigeMultiplier');
-        window.location.reload();
-      }
-    }
-  }, []);
+  // const resetGame = useCallback(() => {
+  //   if (window.confirm('Are you sure you want to reset your progress? This cannot be undone!')) {
+  //     if (window.confirm('Final warning: This will delete all your progress. Continue?')) {
+  //       localStorage.removeItem(SAVE_KEY);
+  //       localStorage.removeItem(BACKUP_KEY);
+  //       localStorage.removeItem('divineMiningUpgrades');
+  //       localStorage.removeItem(HIGH_SCORE_KEY);
+  //       localStorage.removeItem(DIVINE_POINTS_KEY);
+  //       localStorage.removeItem(TOTAL_EARNED_KEY);
+  //       localStorage.removeItem(SESSION_KEY);
+  //       localStorage.removeItem('divineMiningPrestigeMultiplier');
+  //       window.location.reload();
+  //     }
+  //   }
+  // }, []);
 
   // Prestige system - reset for bonus multiplier
-  const prestige = useCallback(() => {
-    const prestigeThreshold = 1000000; // 1 million points to prestige
-    if (gameState.divinePoints >= prestigeThreshold) {
-      const prestigeBonus = Math.floor(gameState.divinePoints / prestigeThreshold);
-      const newMultiplier = 1 + (prestigeBonus * 0.1); // 10% bonus per prestige level
+  // const prestige = useCallback(() => {
+  //   const prestigeThreshold = 1000000; // 1 million points to prestige
+  //   if (gameState.divinePoints >= prestigeThreshold) {
+  //     const prestigeBonus = Math.floor(gameState.divinePoints / prestigeThreshold);
+  //     const newMultiplier = 1 + (prestigeBonus * 0.1); // 10% bonus per prestige level
       
-      if (window.confirm(`Prestige for ${prestigeBonus}x multiplier? You'll lose all points but gain permanent mining speed bonus!`)) {
-        // Reset game state but keep high scores and add prestige bonus
-        const newState: GameState = {
-          divinePoints: 100,
-          pointsPerSecond: 1.0 * newMultiplier,
-          totalEarned24h: 0,
-          totalEarned7d: 0,
-          upgradesPurchased: 0,
-          minersActive: 1,
-          isMining: false,
-          lastSaveTime: Date.now(),
-          sessionStartTime: Date.now(),
-          totalPointsEarned: gameState.totalPointsEarned, // Keep total earned
-          lastDailyReset: new Date().toDateString(),
-          lastWeeklyReset: new Date().toDateString(),
-          version: GAME_VERSION,
-          highScore: gameState.highScore, // Keep high score
-          allTimeHighScore: gameState.allTimeHighScore, // Keep all-time high score
-          currentEnergy: 5000,
-          maxEnergy: 5000,
-          lastEnergyRegen: Date.now(),
-          offlineEfficiencyBonus: 0, // New: Bonus for offline mining
-          lastOfflineTime: Date.now(), // New: Track last offline time
-          unclaimedOfflineRewards: 0, // New: Track unclaimed offline rewards
-          lastOfflineRewardTime: Date.now() // New: Track when offline rewards were last calculated
-        };
+  //     if (window.confirm(`Prestige for ${prestigeBonus}x multiplier? You'll lose all points but gain permanent mining speed bonus!`)) {
+  //       // Reset game state but keep high scores and add prestige bonus
+  //       const newState: GameState = {
+  //         divinePoints: 100,
+  //         pointsPerSecond: 1.0 * newMultiplier,
+  //         totalEarned24h: 0,
+  //         totalEarned7d: 0,
+  //         upgradesPurchased: 0,
+  //         minersActive: 1,
+  //         isMining: false,
+  //         lastSaveTime: Date.now(),
+  //         sessionStartTime: Date.now(),
+  //         totalPointsEarned: gameState.totalPointsEarned, // Keep total earned
+  //         lastDailyReset: new Date().toDateString(),
+  //         lastWeeklyReset: new Date().toDateString(),
+  //         version: GAME_VERSION,
+  //         highScore: gameState.highScore, // Keep high score
+  //         allTimeHighScore: gameState.allTimeHighScore, // Keep all-time high score
+  //         currentEnergy: 5000,
+  //         maxEnergy: 5000,
+  //         lastEnergyRegen: Date.now(),
+  //         offlineEfficiencyBonus: 0, // New: Bonus for offline mining
+  //         lastOfflineTime: Date.now(), // New: Track last offline time
+  //         unclaimedOfflineRewards: 0, // New: Track unclaimed offline rewards
+  //         lastOfflineRewardTime: Date.now() // New: Track when offline rewards were last calculated
+  //       };
         
-        setGameState(newState);
-        setUpgrades(getInitialUpgrades()); // Reset upgrades
-        localStorage.removeItem('divineMiningUpgrades');
+  //       setGameState(newState);
+  //       setUpgrades(getInitialUpgrades()); // Reset upgrades
+  //       localStorage.removeItem('divineMiningUpgrades');
         
-        // Save prestige multiplier
-        localStorage.setItem('divineMiningPrestigeMultiplier', newMultiplier.toString());
+  //       // Save prestige multiplier
+  //       localStorage.setItem('divineMiningPrestigeMultiplier', newMultiplier.toString());
         
-        setSaveMessage(`🎉 Prestiged! +${((newMultiplier - 1) * 100).toFixed(1)}% permanent mining speed bonus!`);
-        setTimeout(() => setSaveMessage(''), 5000);
-      }
-    } else {
-      setSaveMessage(`Need ${(prestigeThreshold - gameState.divinePoints).toLocaleString()} more points to prestige!`);
-      setTimeout(() => setSaveMessage(''), 3000);
-    }
-  }, [gameState]);
+  //       setSaveMessage(`🎉 Prestiged! +${((newMultiplier - 1) * 100).toFixed(1)}% permanent mining speed bonus!`);
+  //       setTimeout(() => setSaveMessage(''), 5000);
+  //     }
+  //   } else {
+  //     setSaveMessage(`Need ${(prestigeThreshold - gameState.divinePoints).toLocaleString()} more points to prestige!`);
+  //     setTimeout(() => setSaveMessage(''), 3000);
+  //   }
+  // }, [gameState]);
 
-  // Export save data
-  const exportSave = useCallback(() => {
-    const saveData = {
-      gameState: {
-        ...gameState,
-        lastSaveTime: Date.now()
-      },
-      upgrades: upgrades,
-      exportDate: new Date().toISOString()
-    };
+  // // Export save data
+  // const exportSave = useCallback(() => {
+  //   const saveData = {
+  //     gameState: {
+  //       ...gameState,
+  //       lastSaveTime: Date.now()
+  //     },
+  //     upgrades: upgrades,
+  //     exportDate: new Date().toISOString()
+  //   };
     
-    const dataStr = JSON.stringify(saveData, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
+  //   const dataStr = JSON.stringify(saveData, null, 2);
+  //   const dataBlob = new Blob([dataStr], { type: 'application/json' });
+  //   const url = URL.createObjectURL(dataBlob);
     
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `divine-mining-save-${new Date().toISOString().split('T')[0]}.json`;
-    link.click();
+  //   const link = document.createElement('a');
+  //   link.href = url;
+  //   link.download = `divine-mining-save-${new Date().toISOString().split('T')[0]}.json`;
+  //   link.click();
     
-    URL.revokeObjectURL(url);
-  }, [gameState, upgrades]);
+  //   URL.revokeObjectURL(url);
+  // }, [gameState, upgrades]);
 
-  // Import save data
-  const importSave = useCallback(() => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json';
+  // // Import save data
+  // const importSave = useCallback(() => {
+  //   const input = document.createElement('input');
+  //   input.type = 'file';
+  //   input.accept = '.json';
     
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
+  //   input.onchange = (e) => {
+  //     const file = (e.target as HTMLInputElement).files?.[0];
+  //     if (!file) return;
       
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const importedData = JSON.parse(e.target?.result as string);
+  //     const reader = new FileReader();
+  //     reader.onload = (e) => {
+  //       try {
+  //         const importedData = JSON.parse(e.target?.result as string);
           
-          // Handle both old format (just gameState) and new format (gameState + upgrades)
-          let gameStateData, upgradesData;
+  //         // Handle both old format (just gameState) and new format (gameState + upgrades)
+  //         let gameStateData, upgradesData;
           
-          if (importedData.gameState && importedData.upgrades) {
-            // New format
-            gameStateData = importedData.gameState;
-            upgradesData = importedData.upgrades;
-          } else {
-            // Old format - just gameState
-            gameStateData = importedData;
-            upgradesData = null;
-          }
+  //         if (importedData.gameState && importedData.upgrades) {
+  //           // New format
+  //           gameStateData = importedData.gameState;
+  //           upgradesData = importedData.upgrades;
+  //         } else {
+  //           // Old format - just gameState
+  //           gameStateData = importedData;
+  //           upgradesData = null;
+  //         }
           
-          if (validateGameState(gameStateData)) {
-            setGameState({
-              ...gameStateData,
-              lastSaveTime: Date.now(),
-              version: GAME_VERSION
-            });
+  //         if (validateGameState(gameStateData)) {
+  //           setGameState({
+  //             ...gameStateData,
+  //             lastSaveTime: Date.now(),
+  //             version: GAME_VERSION
+  //           });
             
-            // Import upgrades if available
-            if (upgradesData && Array.isArray(upgradesData)) {
-              setUpgrades(upgradesData);
-              localStorage.setItem('divineMiningUpgrades', JSON.stringify(upgradesData));
-            }
+  //           // Import upgrades if available
+  //           if (upgradesData && Array.isArray(upgradesData)) {
+  //             setUpgrades(upgradesData);
+  //             localStorage.setItem('divineMiningUpgrades', JSON.stringify(upgradesData));
+  //           }
             
-            setSaveMessage('Save imported successfully!');
-          } else {
-            setSaveMessage('Invalid save file!');
-          }
-        } catch (error) {
-          console.error('Error importing save:', error);
-          setSaveMessage('Error importing save file!');
-        }
-      };
-      reader.readAsText(file);
-    };
+  //           setSaveMessage('Save imported successfully!');
+  //         } else {
+  //           setSaveMessage('Invalid save file!');
+  //         }
+  //       } catch (error) {
+  //         console.error('Error importing save:', error);
+  //         setSaveMessage('Error importing save file!');
+  //       }
+  //     };
+  //     reader.readAsText(file);
+  //   };
     
-    input.click();
-  }, []);
+  //   input.click();
+  // }, []);
 
   // // Debug function to check localStorage state
   // const debugLocalStorage = useCallback(() => {
@@ -1879,58 +2728,58 @@ export const DivineMiningGame: React.FC = () => {
   //   }
   // }, []);
 
-  // Manual save function for debugging
-  const manualSave = useCallback(() => {
-    const saveState = {
-      ...gameState,
-      lastSaveTime: Date.now()
-    };
+  // // Manual save function for debugging
+  // const manualSave = useCallback(() => {
+  //   const saveState = {
+  //     ...gameState,
+  //     lastSaveTime: Date.now()
+  //   };
     
-    console.log('Manual save triggered:', saveState);
-    const success = saveGameState(saveState);
+  //   console.log('Manual save triggered:', saveState);
+  //   const success = saveGameState(saveState);
     
-    if (success) {
-      setSaveMessage('Manual save successful!');
-      setTimeout(() => setSaveMessage(''), 2000);
-    } else {
-      setSaveMessage('Manual save failed!');
-      setTimeout(() => setSaveMessage(''), 3000);
-    }
-  }, [gameState, saveGameState]);
+  //   if (success) {
+  //     setSaveMessage('Manual save successful!');
+  //     setTimeout(() => setSaveMessage(''), 2000);
+  //   } else {
+  //     setSaveMessage('Manual save failed!');
+  //     setTimeout(() => setSaveMessage(''), 3000);
+  //   }
+  // }, [gameState, saveGameState]);
 
-  // Force save current state immediately
-  const forceSave = useCallback(() => {
-    const saveState = {
-      ...gameState,
-      lastSaveTime: Date.now()
-    };
+  // // Force save current state immediately
+  // const forceSave = useCallback(() => {
+  //   const saveState = {
+  //     ...gameState,
+  //     lastSaveTime: Date.now()
+  //   };
     
-    console.log('Force save triggered:', {
-      divinePoints: saveState.divinePoints,
-      pointsPerSecond: saveState.pointsPerSecond,
-      isMining: saveState.isMining,
-      highScore: saveState.highScore,
-      allTimeHighScore: saveState.allTimeHighScore
-    });
+  //   console.log('Force save triggered:', {
+  //     divinePoints: saveState.divinePoints,
+  //     pointsPerSecond: saveState.pointsPerSecond,
+  //     isMining: saveState.isMining,
+  //     highScore: saveState.highScore,
+  //     allTimeHighScore: saveState.allTimeHighScore
+  //   });
     
-    try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(saveState));
-      localStorage.setItem(BACKUP_KEY, JSON.stringify(saveState));
-      localStorage.setItem(HIGH_SCORE_KEY, saveState.allTimeHighScore.toString());
-      localStorage.setItem(DIVINE_POINTS_KEY, saveState.divinePoints.toString());
-      setLastSaveStatus('success');
-      setSaveMessage('Force save completed!');
-      setTimeout(() => setSaveMessage(''), 2000);
-      console.log('Force save successful');
-    } catch (error) {
-      console.error('Force save failed:', error);
-      setLastSaveStatus('error');
-      setSaveMessage('Force save failed!');
-      setTimeout(() => setSaveMessage(''), 3000);
-    }
-  }, [gameState]);
+  //   try {
+  //     localStorage.setItem(SAVE_KEY, JSON.stringify(saveState));
+  //     localStorage.setItem(BACKUP_KEY, JSON.stringify(saveState));
+  //     localStorage.setItem(HIGH_SCORE_KEY, saveState.allTimeHighScore.toString());
+  //     localStorage.setItem(DIVINE_POINTS_KEY, saveState.divinePoints.toString());
+  //     setLastSaveStatus('success');
+  //     setSaveMessage('Force save completed!');
+  //     setTimeout(() => setSaveMessage(''), 2000);
+  //     console.log('Force save successful');
+  //   } catch (error) {
+  //     console.error('Force save failed:', error);
+  //     setLastSaveStatus('error');
+  //     setSaveMessage('Force save failed!');
+  //     setTimeout(() => setSaveMessage(''), 3000);
+  //   }
+  // }, [gameState]);
 
-  const unlockedAchievements = achievements.filter(a => a.unlocked);
+  // const unlockedAchievements = achievements.filter(a => a.unlocked);
 
 
 
@@ -2109,126 +2958,814 @@ export const DivineMiningGame: React.FC = () => {
     }
   }, [gameState.currentEnergy, gameState.isMining, upgrades, getEnhancedMiningRate]);
 
+  // Add state for click effects
+  const [clickEffect, setClickEffect] = useState<{x: number, y: number, timestamp: number} | null>(null);
+  const [showMilestone, setShowMilestone] = useState<{type: string, value: number} | null>(null);
+
+  // Handle Divine Points display click
+  const handleDivinePointsClick = useCallback(() => {
+    // Create click effect
+    setClickEffect({x: Math.random() * 100, y: Math.random() * 100, timestamp: Date.now()});
+    
+    // Check for milestone celebrations
+    const milestones = [1000, 10000, 100000, 1000000, 10000000, 100000000];
+    const currentMilestone = milestones.find(m => gameState.divinePoints >= m && gameState.divinePoints < m + 100);
+    
+    if (currentMilestone) {
+      setShowMilestone({type: 'milestone', value: currentMilestone});
+      setTimeout(() => setShowMilestone(null), 3000);
+    }
+    
+    // Clear click effect after animation
+    setTimeout(() => setClickEffect(null), 1000);
+  }, [gameState.divinePoints]);
+
+  // Enhanced number formatting with emoji for milestones
+  const formatNumberWithEmoji = useCallback((num: number): string => {
+    const formatted = formatNumber(num);
+    if (num >= 1000000) return `💎 ${formatted}`;
+    if (num >= 100000) return `🏆 ${formatted}`;
+    if (num >= 10000) return `⭐ ${formatted}`;
+    if (num >= 1000) return `✨ ${formatted}`;
+    return formatted;
+  }, [formatNumber]);
+
+  // Reusable Card Header Component
+  const CardHeader = useCallback(({ 
+    title, 
+    isActive = false, 
+    showToggle = false, 
+    toggleState = false, 
+    onToggle = () => {}, 
+    toggleText = 'SHOW', 
+    toggleIcon = '📊',
+    extraContent = null 
+  }: {
+    title: string;
+    isActive?: boolean;
+    showToggle?: boolean;
+    toggleState?: boolean;
+    onToggle?: () => void;
+    toggleText?: string;
+    toggleIcon?: string;
+    extraContent?: React.ReactNode;
+  }) => (
+    <div className="card-header">
+      <div className="card-title">
+        <div className={`card-status-indicator ${isActive ? 'animate-pulse' : ''}`}></div>
+        <span>{title}</span>
+      </div>
+      <div className="flex items-center space-x-2">
+        {extraContent}
+        {showToggle && (
+          <button
+            onClick={onToggle}
+            className="text-xs text-cyan-400 hover:text-cyan-300 font-mono tracking-wide game-button transition-all duration-300 flex items-center space-x-1"
+          >
+            <span>{toggleIcon}</span>
+            <span>{toggleState ? 'HIDE' : toggleText}</span>
+          </button>
+        )}
+      </div>
+    </div>
+  ), []);
+
+  // Auto-hide recommended upgrades when player has enough upgrades
+  useEffect(() => {
+    const analysis = analyzeUpgradePricing();
+    const hasEnoughUpgrades = analysis.affordableCount >= 6 || analysis.recommendedCount >= 4;
+    
+    // Auto-hide if player has enough upgrades or is in late game
+    if (hasEnoughUpgrades && showRecommendedUpgrades) {
+      const timer = setTimeout(() => {
+        setShowRecommendedUpgrades(false);
+        // setShowAllRecommended(false); // Reset show all when auto-hiding
+      }, 10000); // Auto-hide after 10 seconds if conditions are met
+      
+      return () => clearTimeout(timer);
+    }
+  }, [gameState.divinePoints, upgrades, showRecommendedUpgrades, analyzeUpgradePricing]);
+
+  // Save user data to database
+  const saveUserDataToDatabase = useCallback(async () => {
+    if (!user?.id || isSavingToDatabase) {
+      return false;
+    }
+
+    try {
+      setIsSavingToDatabase(true);
+      
+      // Prepare comprehensive user data for database
+      const userData = {
+        // Game progress
+        divine_points: gameState.divinePoints,
+        total_points_earned: gameState.totalPointsEarned,
+        high_score: gameState.highScore,
+        all_time_high_score: gameState.allTimeHighScore,
+        
+        // Energy system
+        max_energy: gameState.maxEnergy,
+        current_energy: gameState.currentEnergy,
+        energy_upgrades: upgrades.filter(u => u.id.includes('energy')).map(u => ({
+          id: u.id,
+          level: u.level,
+          effect_value: u.effectValue,
+          max_level: u.maxLevel,
+          base_cost: u.baseCost,
+          cost_multiplier: u.costMultiplier
+        })),
+        
+        // Mining system
+        points_per_second: gameState.pointsPerSecond,
+        is_mining: gameState.isMining,
+        miners_active: gameState.minersActive,
+        
+        // Statistics
+        upgrades_purchased: gameState.upgradesPurchased,
+        total_earned_24h: gameState.totalEarned24h,
+        total_earned_7d: gameState.totalEarned7d,
+        
+        // Offline system
+        offline_efficiency_bonus: gameState.offlineEfficiencyBonus,
+        unclaimed_offline_rewards: gameState.unclaimedOfflineRewards,
+        last_offline_time: gameState.lastOfflineTime,
+        last_offline_reward_time: gameState.lastOfflineRewardTime,
+        
+        // Session data
+        session_start_time: gameState.sessionStartTime,
+        last_daily_reset: gameState.lastDailyReset,
+        last_weekly_reset: gameState.lastWeeklyReset,
+        last_save_time: gameState.lastSaveTime,
+        
+        // Game state
+        game_version: gameState.version,
+        last_energy_regen: gameState.lastEnergyRegen,
+        
+        // All upgrades data with full details
+        upgrades_data: upgrades.map(u => ({
+          id: u.id,
+          name: u.name,
+          level: u.level,
+          max_level: u.maxLevel,
+          effect: u.effect,
+          base_cost: u.baseCost,
+          cost_multiplier: u.costMultiplier,
+          effect_value: u.effectValue,
+          category: u.category,
+          unlock_requirement: u.unlockRequirement
+        })),
+        
+        // Achievements with full details
+        achievements_unlocked: achievements.filter(a => a.unlocked).map(a => ({
+          id: a.id,
+          name: a.name,
+          description: a.description,
+          unlocked_at: a.unlockedAt
+        })),
+        
+        // Tutorial state
+        tutorial_completed: tutorialState.isCompleted,
+        tutorial_current_step: tutorialState.currentStep,
+        
+        // Pagination state
+        current_upgrade_page: currentUpgradePage,
+        upgrade_filter: upgradeFilter,
+        selected_category: selectedCategory,
+        
+        // Save metadata
+        save_timestamp: Date.now(),
+        save_version: GAME_VERSION
+      };
+
+      console.log('Saving user data to database:', {
+        user_id: user.id,
+        divine_points: userData.divine_points,
+        total_points_earned: userData.total_points_earned,
+        upgrades_count: userData.upgrades_data.length,
+        achievements_count: userData.achievements_unlocked.length
+      });
+
+      // Save to database using upsert
+      const { error } = await supabase
+        .from('user_game_data')
+        .upsert({
+          user_id: user.id,
+          game_data: userData,
+          last_updated: new Date().toISOString()
+        }, {
+          onConflict: 'user_id'
+        });
+
+      if (error) {
+        console.error('Supabase upsert error:', error);
+        throw error;
+      }
+
+      setLastUserSaveTime(Date.now());
+      console.log('User data saved to database successfully');
+      
+      // Also update user's total earned in main users table
+      const { error: userUpdateError } = await supabase
+        .from('users')
+        .update({
+          total_earned: gameState.totalPointsEarned,
+          last_active: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (userUpdateError) {
+        console.error('Error updating user total_earned:', userUpdateError);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error saving user data to database:', error);
+      showSystemNotification('Database Save Error', 'Failed to save progress to cloud!', 'error');
+      return false;
+    } finally {
+      setIsSavingToDatabase(false);
+    }
+  }, [user?.id, gameState, upgrades, achievements, tutorialState, currentUpgradePage, upgradeFilter, selectedCategory, isSavingToDatabase, showSystemNotification]);
+
+  // Load user data from database
+  const loadUserDataFromDatabase = useCallback(async () => {
+    if (!user?.id) {
+      return false;
+    }
+
+    try {
+      console.log('Loading user data from database for user:', user.id);
+      
+      const { data, error } = await supabase
+        .from('user_game_data')
+        .select('game_data, last_updated')
+        .eq('user_id', user.id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No saved data found, this is normal for new users
+          console.log('No saved game data found in database for user');
+          return false;
+        }
+        throw error;
+      }
+
+      if (!data?.game_data) {
+        console.log('No game data found in database record');
+        return false;
+      }
+
+      const savedData = data.game_data;
+      console.log('Loaded game data from database:', {
+        divine_points: savedData.divine_points,
+        total_points_earned: savedData.total_points_earned,
+        upgrades_count: savedData.upgrades_data?.length || 0,
+        last_updated: data.last_updated
+      });
+      
+      // Validate and load game state
+      if (savedData.divine_points !== undefined && savedData.max_energy !== undefined) {
+        setGameState(prev => ({
+          ...prev,
+          divinePoints: savedData.divine_points || prev.divinePoints,
+          totalPointsEarned: savedData.total_points_earned || prev.totalPointsEarned,
+          highScore: savedData.high_score || prev.highScore,
+          allTimeHighScore: savedData.all_time_high_score || prev.allTimeHighScore,
+          maxEnergy: savedData.max_energy || prev.maxEnergy,
+          currentEnergy: savedData.current_energy || prev.currentEnergy,
+          pointsPerSecond: savedData.points_per_second || prev.pointsPerSecond,
+          isMining: savedData.is_mining || prev.isMining,
+          minersActive: savedData.miners_active || prev.minersActive,
+          upgradesPurchased: savedData.upgrades_purchased || prev.upgradesPurchased,
+          totalEarned24h: savedData.total_earned_24h || prev.totalEarned24h,
+          totalEarned7d: savedData.total_earned_7d || prev.totalEarned7d,
+          offlineEfficiencyBonus: savedData.offline_efficiency_bonus || prev.offlineEfficiencyBonus,
+          unclaimedOfflineRewards: savedData.unclaimed_offline_rewards || prev.unclaimedOfflineRewards,
+          lastOfflineTime: savedData.last_offline_time || prev.lastOfflineTime,
+          lastOfflineRewardTime: savedData.last_offline_reward_time || prev.lastOfflineRewardTime,
+          sessionStartTime: savedData.session_start_time || prev.sessionStartTime,
+          lastDailyReset: savedData.last_daily_reset || prev.lastDailyReset,
+          lastWeeklyReset: savedData.last_weekly_reset || prev.lastWeeklyReset,
+          lastSaveTime: savedData.last_save_time || prev.lastSaveTime,
+          lastEnergyRegen: savedData.last_energy_regen || prev.lastEnergyRegen,
+          version: savedData.game_version || prev.version
+        }));
+
+        // Load upgrades if available
+        if (savedData.upgrades_data && Array.isArray(savedData.upgrades_data)) {
+          const formattedUpgrades = savedData.upgrades_data.map((u: any) => ({
+            id: u.id,
+            name: u.name,
+            level: u.level,
+            maxLevel: u.max_level,
+            effect: u.effect,
+            baseCost: u.base_cost,
+            costMultiplier: u.cost_multiplier,
+            effectValue: u.effect_value,
+            category: u.category,
+            unlockRequirement: u.unlock_requirement
+          }));
+          
+          setUpgrades(formattedUpgrades);
+          const userId = user?.id ? user.id.toString() : undefined;
+          const userUpgradesKey = getUserSpecificKey(UPGRADES_KEY, userId);
+          localStorage.setItem(userUpgradesKey, JSON.stringify(formattedUpgrades));
+          console.log('Loaded upgrades from database:', formattedUpgrades.length);
+        }
+
+        // Load achievements if available
+        if (savedData.achievements_unlocked && Array.isArray(savedData.achievements_unlocked)) {
+          setAchievements(prev => prev.map(achievement => {
+            const savedAchievement = savedData.achievements_unlocked.find((a: any) => a.id === achievement.id);
+            return savedAchievement ? {
+              ...achievement,
+              unlocked: true,
+              unlockedAt: savedAchievement.unlocked_at
+            } : achievement;
+          }));
+          console.log('Loaded achievements from database:', savedData.achievements_unlocked.length);
+        }
+
+        // Load tutorial state if available
+        if (savedData.tutorial_completed !== undefined) {
+          setTutorialState(prev => ({
+            ...prev,
+            isCompleted: savedData.tutorial_completed,
+            currentStep: savedData.tutorial_current_step || 0
+          }));
+        }
+
+        // Load pagination state if available
+        if (savedData.current_upgrade_page !== undefined) {
+          setCurrentUpgradePage(savedData.current_upgrade_page);
+        }
+        if (savedData.upgrade_filter !== undefined) {
+          setUpgradeFilter(savedData.upgrade_filter);
+        }
+        if (savedData.selected_category !== undefined) {
+          setSelectedCategory(savedData.selected_category);
+        }
+
+        console.log('User data loaded from database successfully');
+        showSystemNotification('Cloud Sync', 'Progress loaded from cloud!', 'success');
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error loading user data from database:', error);
+      return false;
+    }
+  }, [user?.id, showSystemNotification]);
+
+  // Enhanced auto-save to database effect
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Save to database every 2 minutes (less frequent than localStorage)
+    const saveToDatabase = async () => {
+      const timeSinceLastSave = Date.now() - lastUserSaveTime;
+      if (timeSinceLastSave >= 120000) { // 2 minutes
+        await saveUserDataToDatabase();
+      }
+    };
+
+    saveToDatabase();
+  }, [gameState, upgrades, achievements, user?.id, lastUserSaveTime, saveUserDataToDatabase]);
+
+  // Load user data from database on mount
+  useEffect(() => {
+    if (user?.id && !hasLoadedSavedData) {
+      // Try to load from database first
+      loadUserDataFromDatabase().then((loadedFromDatabase) => {
+        if (loadedFromDatabase) {
+          setHasLoadedSavedData(true);
+          console.log('Game state loaded from database');
+        } else {
+          console.log('No database data found, using localStorage');
+        }
+      });
+    }
+  }, [user?.id, hasLoadedSavedData, loadUserDataFromDatabase]);
+
+  // Enhanced database save timer with better error handling
+  useEffect(() => {
+    if (user?.id) {
+      userSaveRef.current = setInterval(async () => {
+        try {
+          await saveUserDataToDatabase();
+        } catch (error) {
+          console.error('Auto-save failed:', error);
+          // Don't show notification for auto-save failures to avoid spam
+        }
+      }, 120000); // Save to database every 2 minutes
+
+      return () => {
+        if (userSaveRef.current) {
+          clearInterval(userSaveRef.current);
+        }
+      };
+    }
+  }, [user?.id, saveUserDataToDatabase]);
+
+  // Auto-save on important game events
+  useEffect(() => {
+    if (!user?.id || !hasLoadedSavedData) return;
+
+    // // Save immediately on important events
+    // const importantEvents = [
+    //   gameState.divinePoints, // Points change
+    //   gameState.upgradesPurchased, // Upgrade purchased
+    //   gameState.isMining, // Mining state change
+    //   gameState.maxEnergy, // Energy capacity change
+    //   achievements.filter(a => a.unlocked).length // Achievement unlocked
+    // ];
+
+    // Debounced save for important events
+    const timeoutId = setTimeout(() => {
+      saveUserDataToDatabase();
+    }, 5000); // Save 5 seconds after important event
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    user?.id, 
+    hasLoadedSavedData, 
+    gameState.divinePoints, 
+    gameState.upgradesPurchased, 
+    gameState.isMining, 
+    gameState.maxEnergy,
+    achievements.filter(a => a.unlocked).length,
+    saveUserDataToDatabase
+  ]);
+
+  // Migrate localStorage game data to Supabase for the current user
+  const migrateLocalToSupabase = useCallback(async () => {
+    if (!user?.id) {
+      showSystemNotification('Not Logged In', 'Please log in to sync your local save to the cloud.', 'warning');
+      return;
+    }
+    try {
+      // Get user-specific keys
+      const userId = user.id.toString();
+      const userSaveKey = getUserSpecificKey(SAVE_KEY, userId);
+      const userUpgradesKey = getUserSpecificKey(UPGRADES_KEY, userId);
+      const userBackupKey = getUserSpecificKey(BACKUP_KEY, userId);
+      
+      // Read user-specific localStorage data
+      const localGameState = localStorage.getItem(userSaveKey);
+      const localUpgrades = localStorage.getItem(userUpgradesKey);
+      const localBackup = localStorage.getItem(userBackupKey);
+      let gameState = localGameState ? JSON.parse(localGameState) : null;
+      let upgrades = localUpgrades ? JSON.parse(localUpgrades) : null;
+      
+      // Fallback to backup if needed
+      if (!gameState && localBackup) {
+        gameState = JSON.parse(localBackup);
+      }
+      if (!gameState) {
+        showSystemNotification('No Local Save', 'No local game data found to sync for this user.', 'warning');
+        return;
+      }
+      // Use current state if localStorage is missing
+      if (!upgrades) upgrades = upgrades || [];
+      // Format for Supabase
+      const userData = {
+        divine_points: gameState.divinePoints,
+        total_points_earned: gameState.totalPointsEarned,
+        high_score: gameState.highScore,
+        all_time_high_score: gameState.allTimeHighScore,
+        max_energy: gameState.maxEnergy,
+        current_energy: gameState.currentEnergy,
+        energy_upgrades: upgrades.filter((u:any) => u.id && u.id.includes('energy')).map((u:any) => ({ id: u.id, level: u.level, effect_value: u.effectValue })),
+        points_per_second: gameState.pointsPerSecond,
+        is_mining: gameState.isMining,
+        miners_active: gameState.minersActive,
+        upgrades_purchased: gameState.upgradesPurchased,
+        total_earned_24h: gameState.totalEarned24h,
+        total_earned_7d: gameState.totalEarned7d,
+        offline_efficiency_bonus: gameState.offlineEfficiencyBonus,
+        unclaimed_offline_rewards: gameState.unclaimedOfflineRewards,
+        session_start_time: gameState.sessionStartTime,
+        last_daily_reset: gameState.lastDailyReset,
+        last_weekly_reset: gameState.lastWeeklyReset,
+        game_version: gameState.version,
+        last_save_time: Date.now(),
+        upgrades_data: upgrades,
+        achievements_unlocked: achievements.filter((a:any) => a.unlocked).map((a:any) => ({ id: a.id, unlocked_at: a.unlockedAt }))
+      };
+      // Upsert to Supabase
+      const { error } = await supabase
+        .from('user_game_data')
+        .upsert({
+          user_id: user.id,
+          game_data: userData,
+          last_updated: new Date().toISOString()
+        }, {
+          onConflict: 'user_id'
+        });
+      if (error) throw error;
+      showSystemNotification('Sync Complete', 'Local save migrated to cloud!', 'success');
+    } catch (error) {
+      console.error('Migration error:', error);
+      showSystemNotification('Sync Failed', 'Could not sync local save to cloud.', 'error');
+    }
+  }, [user?.id, showSystemNotification]);
+
     return (
     <div className="flex-1 p-custom space-y-2 overflow-y-auto game-scrollbar">
-      
-      {/* Test Notification Button - REMOVED FOR PRODUCTION */}
-      {/* <div className="mb-4 space-y-2">
-        <div className="text-cyan-400 font-mono font-bold text-sm">🔧 NOTIFICATION SYSTEM TEST</div>
-        <div className="flex flex-wrap gap-2">
-      <button 
-            onClick={() => showSystemNotification('Test Success', 'This is a success notification test!', 'success')}
-            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors text-xs font-mono"
-      >
-            Success Test
-      </button>
-          <button 
-            onClick={() => showSystemNotification('Test Error', 'This is an error notification test!', 'error')}
-            className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-500 transition-colors text-xs font-mono"
+      {/* Divine Points Display - ENHANCED VERSION */}
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] divine-points-display overflow-hidden game-card-frame">
+        {/* Sync Local Button Only */}
+        <div className="absolute top-2 right-2 z-50">
+          <button
+            onClick={migrateLocalToSupabase}
+            className="px-3 py-1 text-xs font-mono rounded bg-cyan-700 text-white border border-cyan-400 hover:bg-cyan-600 transition-all shadow"
+            title="Sync local save to cloud"
           >
-            Error Test
-          </button>
-          <button 
-            onClick={() => showSystemNotification('Test Warning', 'This is a warning notification test!', 'warning')}
-            className="px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500 transition-colors text-xs font-mono"
-          >
-            Warning Test
-          </button>
-          <button 
-            onClick={() => showUpgradeNotification('Test Upgrade', 1000)}
-            className="px-3 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors text-xs font-mono"
-          >
-            Upgrade Test
-          </button>
-          <button 
-            onClick={() => showAchievementNotification({ name: 'Test Achievement', description: 'This is a test achievement!' })}
-            className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-500 transition-colors text-xs font-mono"
-          >
-            Achievement Test
-          </button>
-          <button 
-            onClick={() => showMilestoneNotification(10000, 10000)}
-            className="px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500 transition-colors text-xs font-mono"
-          >
-            Milestone Test
+            ☁️ Sync Local
           </button>
         </div>
-      </div> */}
-
+         {/* Futuristic Corner Accents */}
+         <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400 corner-accent"></div>
         
-        {/* Save Status Indicator */}
-      {/* <div className="fixed top-4 right-4 z-50">
-        <div className={`px-3 py-1 rounded-lg text-xs font-mono ${
-          lastSaveStatus === 'success' ? 'bg-green-500/80 text-white' :
-          lastSaveStatus === 'error' ? 'bg-red-500/80 text-white' :
-          'bg-yellow-500/80 text-black'
-        }`}>
-          {lastSaveStatus === 'success' ? '✓ SAVED' :
-           lastSaveStatus === 'error' ? '✗ ERROR' :
-           '⏳ SAVING...'}
-        </div>
-        {saveMessage && (
-          <div className="mt-1 px-2 py-1 bg-black/80 text-white text-xs rounded">
-            {saveMessage}
+        {/* Floating Particles Background */}
+        {gameState.isMining && (
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {[...Array(12)].map((_, i) => (
+              <div
+                key={`floating-particle-${i}`}
+                className="absolute w-1 h-1 bg-cyan-400/60 rounded-full animate-ping"
+                style={{
+                  left: `${Math.random() * 100}%`,
+                  top: `${Math.random() * 100}%`,
+                  animationDuration: `${2 + Math.random() * 3}s`,
+                  animationDelay: `${Math.random() * 2}s`,
+                  animationIterationCount: 'infinite'
+                }}
+              />
+            ))}
+            {[...Array(6)].map((_, i) => (
+              <div
+                key={`sparkle-${i}`}
+                className="absolute w-0.5 h-0.5 bg-yellow-400 rounded-full animate-pulse"
+                style={{
+                  left: `${20 + Math.random() * 60}%`,
+                  top: `${20 + Math.random() * 60}%`,
+                  animationDuration: `${1 + Math.random() * 2}s`,
+                  animationDelay: `${Math.random() * 1}s`
+                }}
+              />
+            ))}
           </div>
         )}
-      </div> */}
-
-      {/* Divine Points Display */}
-      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] divine-points-display">
-        {/* Futuristic Corner Accents */}
-        <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
-        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
-        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
-        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
         
-        <div className="text-center">
-          <div className="flex items-center justify-center space-x-2 mb-2">
-            <div className={`w-2 h-2 rounded-full animate-pulse ${gameState.isMining ? 'bg-cyan-400' : 'bg-gray-500'}`}></div>
-            <span className="text-cyan-400 font-mono font-bold tracking-wider text-sm">DIVINE POINTS</span>
+        {/* Dynamic Background Glow */}
+        <div 
+          className={`absolute inset-0 rounded-xl transition-all duration-1000 ${
+            gameState.isMining 
+              ? 'bg-gradient-to-br from-cyan-500/10 via-blue-500/5 to-purple-500/10 animate-pulse' 
+              : 'bg-gradient-to-br from-gray-500/5 to-gray-600/5'
+          }`}
+        />
+        
+        {/* Click Effect */}
+        {clickEffect && (
+          <div 
+            className="absolute pointer-events-none z-10"
+            style={{
+              left: `${clickEffect.x}%`,
+              top: `${clickEffect.y}%`,
+              transform: 'translate(-50%, -50%)'
+            }}
+          >
+            <div className="text-cyan-400 font-mono font-bold text-sm animate-bounce">
+              +{getBoostedMiningRate().toFixed(1)}
+            </div>
           </div>
-          <div className="text-3xl font-mono font-bold text-cyan-300 mb-1 tracking-wider animate-number-update" key={gameState.divinePoints}>
-            {formatNumber(gameState.divinePoints)}
+        )}
+        
+        {/* Milestone Celebration */}
+        {showMilestone && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+            <div className="text-center animate-milestone-sparkle">
+              <div className="text-6xl mb-2">
+                {showMilestone.value >= 1000000 ? '💎' : 
+                 showMilestone.value >= 100000 ? '🏆' : 
+                 showMilestone.value >= 10000 ? '⭐' : '✨'}
+              </div>
+              <div className="text-2xl font-mono font-bold text-cyan-300 mb-1">
+                MILESTONE!
+              </div>
+              <div className="text-lg font-mono text-cyan-400">
+                {formatNumber(showMilestone.value)} Points
+              </div>
+            </div>
           </div>
-          <div className="text-xs text-cyan-400 font-mono tracking-wide">
-            +{getBoostedMiningRate().toFixed(1)}/sec • +{(getBoostedMiningRate() * 60).toFixed(0)}/min • +{(getBoostedMiningRate() * 3600).toFixed(0)}/hour
-            {activeBoosts.length > 0 && (
-              <span className="text-yellow-400 ml-2">
-                (+{activeBoosts.filter(b => b.type === 'mining').reduce((sum, b) => sum + b.multiplier, 0)}x boost)
-              </span>
+        )}
+        
+        <div className="relative text-center">
+          {/* Card Header */}
+          <CardHeader 
+            title="DIVINE POINTS" 
+            isActive={gameState.isMining}
+            extraContent={gameState.isMining && (
+              <div className="text-xs text-green-400 font-mono animate-pulse">
+                ⚡ ACTIVE
+              </div>
             )}
-            {parseFloat(localStorage.getItem('divineMiningPrestigeMultiplier') || '1.0') > 1.0 && (
-              <span className="text-purple-400 ml-2">
-                (Prestige: +{((parseFloat(localStorage.getItem('divineMiningPrestigeMultiplier') || '1.0') - 1) * 100).toFixed(1)}%)
-              </span>
+          />
+          
+          {/* Main Points Display with Enhanced Styling */}
+          <div className="relative mb-2">
+            {/* Glowing Background for Large Numbers */}
+            <div className={`absolute inset-0 rounded-lg transition-all duration-500 ${
+              gameState.divinePoints > 1000000 
+                ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 animate-pulse' 
+                : gameState.divinePoints > 100000 
+                ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 animate-pulse' 
+                : gameState.divinePoints > 10000 
+                ? 'bg-gradient-to-r from-green-500/20 to-cyan-500/20' 
+                : 'bg-gradient-to-r from-blue-500/10 to-cyan-500/10'
+            }`} />
+            
+            <div 
+              className={`relative text-4xl font-mono font-bold tracking-wider transition-all duration-300 hover:scale-105 cursor-pointer group ${
+                gameState.divinePoints > 1000000 
+                  ? 'text-purple-300 drop-shadow-[0_0_10px_rgba(147,51,234,0.5)]' 
+                  : gameState.divinePoints > 100000 
+                  ? 'text-yellow-300 drop-shadow-[0_0_10px_rgba(251,191,36,0.5)]' 
+                  : gameState.divinePoints > 10000 
+                  ? 'text-green-300 drop-shadow-[0_0_10px_rgba(34,197,94,0.5)]' 
+                  : 'text-cyan-300 drop-shadow-[0_0_10px_rgba(0,255,255,0.5)]'
+              } animate-number-update`} 
+              key={gameState.divinePoints}
+              title={`${gameState.divinePoints.toLocaleString()} Divine Points - Click for fun effects! 🎉`}
+              onClick={handleDivinePointsClick}
+            >
+              {formatNumberWithEmoji(gameState.divinePoints)}
+              
+              {/* Click indicator */}
+              <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-500 font-mono opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                Click for effects! 🎉
+              </div>
+            </div>
+            
+            {/* Milestone Indicators */}
+            {gameState.divinePoints >= 1000000 && (
+              <div className="absolute -top-2 -right-2 text-xs text-purple-400 animate-bounce">
+                💎
+              </div>
+            )}
+            {gameState.divinePoints >= 100000 && gameState.divinePoints < 1000000 && (
+              <div className="absolute -top-2 -right-2 text-xs text-yellow-400 animate-bounce">
+                🏆
+              </div>
+            )}
+            {gameState.divinePoints >= 10000 && gameState.divinePoints < 100000 && (
+              <div className="absolute -top-2 -right-2 text-xs text-green-400 animate-bounce">
+                ⭐
+              </div>
             )}
           </div>
-          <div className="text-xs text-gray-400 mt-1">
-            Session: {getSessionDuration()} • Total Earned: {formatNumber(gameState.totalPointsEarned)}
+          
+          {/* Enhanced Mining Rate Display */}
+          <div className="text-xs font-mono tracking-wide mb-2">
+            <div className="flex items-center justify-center space-x-3">
+              <span className={`transition-all duration-300 ${
+                gameState.isMining ? 'text-cyan-300 animate-pulse' : 'text-cyan-400'
+              }`}>
+                +{getBoostedMiningRate().toFixed(1)}/sec
+              </span>
+              <span className="text-gray-500">•</span>
+              <span className="text-blue-400">
+                +{(getBoostedMiningRate() * 60).toFixed(0)}/min
+              </span>
+              <span className="text-gray-500">•</span>
+              <span className="text-green-400">
+                +{(getBoostedMiningRate() * 3600).toFixed(0)}/hour
+              </span>
+            </div>
+            
+            {/* Boost Indicators */}
+            <div className="flex items-center justify-center space-x-2 mt-1">
+              {activeBoosts.length > 0 && (
+                <span className="text-yellow-400 animate-pulse">
+                  ⚡ +{activeBoosts.filter(b => b.type === 'mining').reduce((sum, b) => sum + b.multiplier, 0)}x boost
+                </span>
+              )}
+              {parseFloat(localStorage.getItem('divineMiningPrestigeMultiplier') || '1.0') > 1.0 && (
+                <span className="text-purple-400 animate-pulse">
+                  👑 +{((parseFloat(localStorage.getItem('divineMiningPrestigeMultiplier') || '1.0') - 1) * 100).toFixed(1)}% prestige
+                </span>
+              )}
+            </div>
           </div>
+          
+          {/* Session Info with Enhanced Styling */}
+          <div className="text-xs text-gray-400 mt-2 mb-3">
+            <div className="flex items-center justify-center space-x-4">
+              <span className="flex items-center space-x-1">
+                <span className="text-blue-400">⏱️</span>
+                <span>{getSessionDuration()}</span>
+              </span>
+              <span className="text-gray-500">•</span>
+              <span className="flex items-center space-x-1">
+                <span className="text-green-400">💰</span>
+                <span>{formatNumber(gameState.totalPointsEarned)}</span>
+              </span>
+              {user?.id && (
+                <>
+                  <span className="text-gray-500">•</span>
+                  <span className="flex items-center space-x-1">
+                    <span className={`${isSavingToDatabase ? 'text-yellow-400' : 'text-cyan-400'}`}>
+                      {isSavingToDatabase ? '💾' : '☁️'}
+                    </span>
+                    <span className={isSavingToDatabase ? 'text-yellow-400' : 'text-cyan-400'}>
+                      {isSavingToDatabase ? 'Saving...' : 'Auto-Save'}
+                    </span>
+                  </span>
+                </>
+              )}
+              {isNewPlayer && (
+                <>
+                  <span className="text-gray-500">•</span>
+                  <span className="flex items-center space-x-1">
+                    <span className="text-yellow-400">🆕</span>
+                    <span className="text-yellow-400">NEW PLAYER</span>
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+          
+          {/* Enhanced Active Boosts Display */}
           {activeBoosts.length > 0 && (
-            <div className="mt-2 p-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
-              <div className="text-xs text-yellow-400 font-mono font-bold mb-1">ACTIVE BOOSTS:</div>
-              <div className="flex flex-wrap gap-1">
+            <div className="mt-3 p-3 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 rounded-lg backdrop-blur-sm">
+              <div className="text-xs text-yellow-400 font-mono font-bold mb-2 flex items-center justify-center space-x-1">
+                <span>⚡</span>
+                <span>ACTIVE BOOSTS</span>
+                <span>⚡</span>
+              </div>
+              <div className="flex flex-wrap gap-2 justify-center">
                 {activeBoosts.map((boost, index) => (
-                  <div key={index} className="text-xs text-yellow-300 bg-yellow-500/30 px-2 py-1 rounded">
+                  <div 
+                    key={index} 
+                    className="text-xs text-yellow-300 bg-yellow-500/30 px-3 py-1 rounded-full border border-yellow-400/50 animate-pulse hover:scale-105 transition-all duration-200 cursor-default"
+                    title={`${boost.multiplier}x mining boost for ${Math.ceil((boost.expires - Date.now()) / (60 * 60 * 1000))} more hours`}
+                  >
                     {boost.multiplier}x mining ({Math.ceil((boost.expires - Date.now()) / (60 * 60 * 1000))}h)
                   </div>
                 ))}
               </div>
             </div>
           )}
+          
+          {/* Progress Bar for Next Milestone */}
+          <div className="mt-3">
+            {(() => {
+              const milestones = [1000, 10000, 100000, 1000000, 10000000, 100000000];
+              const currentMilestone = milestones.find(m => gameState.divinePoints < m) || 1000000000;
+              const previousMilestone = milestones.filter(m => m < currentMilestone).pop() || 0;
+              const progress = ((gameState.divinePoints - previousMilestone) / (currentMilestone - previousMilestone)) * 100;
+              
+              return (
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 font-mono mb-1">
+                    Progress to {formatNumber(currentMilestone)}: {progress.toFixed(1)}%
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-1.5 mb-1">
+                    <div 
+                      className={`h-1.5 rounded-full transition-all duration-500 ${
+                        currentMilestone >= 1000000 ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
+                        currentMilestone >= 100000 ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
+                        currentMilestone >= 10000 ? 'bg-gradient-to-r from-green-500 to-cyan-500' :
+                        'bg-gradient-to-r from-blue-500 to-cyan-500'
+                      }`}
+                      style={{ width: `${Math.min(100, progress)}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-gray-500 font-mono">
+                    {formatNumber(gameState.divinePoints)} / {formatNumber(currentMilestone)}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </div>
       </div>
 
       {/* Offline Rewards Notification */}
       {showOfflineRewards && gameState.unclaimedOfflineRewards > 0 && (
-        <div className="relative bg-gradient-to-r from-purple-900/40 to-blue-900/40 backdrop-blur-xl border border-purple-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(147,51,234,0.2)] animate-pulse">
+        <div className="relative bg-gradient-to-r from-purple-900/40 to-blue-900/40 backdrop-blur-xl border border-purple-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(147,51,234,0.2)] animate-pulse game-card-frame">
           {/* Futuristic Corner Accents */}
-          <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-purple-400"></div>
-          <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-purple-400"></div>
-          <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-purple-400"></div>
-          <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-purple-400"></div>
+          <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-purple-400 corner-accent"></div>
+          <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-purple-400 corner-accent"></div>
+          <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-purple-400 corner-accent"></div>
+          <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-purple-400 corner-accent"></div>
           
           <div className="text-center">
             <div className="flex items-center justify-center space-x-2 mb-3">
@@ -2258,160 +3795,227 @@ export const DivineMiningGame: React.FC = () => {
         </div>
       )}
 
-      {/* Mining Station */}
-      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] mining-station">
-        {/* Futuristic Corner Accents */}
-        <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
-        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
-        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
-        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
+      {/* Mining Station - COMPACT SINGLE CARD */}
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] mining-station overflow-hidden game-card-frame">
+         {/* Futuristic Corner Accents */}
+         <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400 corner-accent"></div>
         
-        <div className="text-center mb-4">
-          <div className="flex items-center justify-center space-x-2 mb-3">
-            <div className={`w-2 h-2 rounded-full animate-pulse ${gameState.isMining ? 'bg-cyan-400' : 'bg-gray-500'}`}></div>
-            <span className="text-cyan-400 font-mono font-bold tracking-wider">MINING STATION</span>
-            {gameState.isMining && (
-              <div className="text-xs text-green-400 font-mono animate-pulse">
-                {miningResumed ? 'RESUMED' : 'ACTIVE'}
-              </div>
-            )}
-            {(() => {
-              const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
-              const hasAutoMining = autoMiningUpgrades.some(u => u.level > 0);
-              return hasAutoMining ? (
-                <div className="text-xs text-purple-400 font-mono animate-pulse">
-                  🤖 AUTO
-                </div>
-              ) : null;
-            })()}
-          </div>
-          
-          {/* Mining Animation */}
-          <div className="relative w-20 h-20 mx-auto mb-4">
-            <div className={`absolute inset-0 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full ${gameState.isMining ? 'mining-station-active animate-pulse' : 'opacity-50'}`}>
-              <div className={`absolute inset-2 bg-gradient-to-br from-cyan-400 to-cyan-500 rounded-full ${gameState.isMining ? 'animate-spin' : ''}`} style={{ animationDuration: '2s' }}>
-                <div className="absolute inset-1 bg-gradient-to-br from-cyan-300 to-cyan-400 rounded-full animate-pulse"></div>
-              </div>
-            </div>
-            {/* Mining Particles */}
-            {gameState.isMining && [...Array(8)].map((_, i) => (
+        
+        {/* Dynamic Background Glow */}
+        <div 
+          className={`absolute inset-0 rounded-xl transition-all duration-1000 ${
+            gameState.isMining 
+              ? 'bg-gradient-to-br from-cyan-500/10 via-blue-500/5 to-purple-500/10 animate-pulse' 
+              : 'bg-gradient-to-br from-gray-500/5 to-gray-600/5'
+          }`}
+        />
+        
+        {/* Floating Particles */}
+        {gameState.isMining && (
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {[...Array(8)].map((_, i) => (
               <div
-                key={`mining-particle-${i}`}
-                className="absolute w-1 h-1 bg-cyan-400 rounded-full animate-ping"
+                key={`particle-${i}`}
+                className="absolute w-1 h-1 bg-cyan-400/60 rounded-full animate-ping"
                 style={{
-                  top: '50%',
-                  left: '50%',
-                  transform: `rotate(${i * 45}deg) translateX(30px)`,
-                  animationDuration: `${1 + i * 0.2}s`,
-                  animationDelay: `${i * 0.1}s`
+                  left: `${Math.random() * 100}%`,
+                  top: `${Math.random() * 100}%`,
+                  animationDuration: `${2 + Math.random() * 3}s`,
+                  animationDelay: `${Math.random() * 2}s`
                 }}
               />
             ))}
           </div>
-          
-          <button 
-            onClick={toggleMining}
-            disabled={!gameState.isMining && gameState.currentEnergy < 1}
-            className={`font-mono font-bold px-6 py-3 rounded-lg transition-all duration-300 border tracking-wider game-button mining-button ${
-              gameState.isMining 
-                ? 'bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)] border-red-400'
-                : gameState.currentEnergy < 1
-                ? 'bg-gradient-to-r from-gray-600 to-gray-500 text-gray-400 cursor-not-allowed border-gray-400'
-                : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-[0_0_20px_rgba(0,255,255,0.3)] border-cyan-400'
-            }`}
-          >
-            {gameState.isMining ? 'STOP MINING' : gameState.currentEnergy < 1 ? 'NO ENERGY' : 'ACTIVATE MINING'}
-          </button>
-          
-                      {/* Energy Status */}
-            <div className="mt-3 text-center energy-status">
-            {/* Energy Bar */}
-            <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-              <div 
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  gameState.currentEnergy < 100 ? 'bg-red-500' : 
-                  gameState.currentEnergy < 500 ? 'bg-yellow-500' : 
-                  gameState.isMining ? 'bg-red-400' : 'bg-blue-500'
-                } ${gameState.isMining ? 'animate-pulse' : ''}`}
-                style={{ width: `${(gameState.currentEnergy / gameState.maxEnergy) * 100}%` }}
-              ></div>
-            </div>
-            
-            <div className="text-xs text-gray-400 font-mono">
-              Energy: {gameState.currentEnergy.toLocaleString()}/{gameState.maxEnergy.toLocaleString()}
-            </div>
-            
-            {/* Energy Efficiency Display */}
-            {(() => {
-              const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
-              const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
-              const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
-              const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-              const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-              const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-              const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus); // Cap at 95% reduction
-              
-              return (
-                <div className="text-xs text-green-400 font-mono">
-                  Efficiency: {(totalEfficiencyBonus * 100).toFixed(1)}% reduction
-                </div>
-              );
-            })()}
-            
-            {gameState.currentEnergy < gameState.maxEnergy && (
-              <div className="text-xs text-blue-400 font-mono animate-pulse">
-                Regenerating: +{(0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0)).toFixed(1)}/sec
-              </div>
-            )}
-            {gameState.isMining && (
-              <div className="text-xs text-red-400 font-mono">
-                Consuming: -{(() => {
-                  const boostedRate = getEnhancedMiningRate();
-                  const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
-                  const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
-                  const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
-                  const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                  const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                  const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                  const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus); // Cap at 95% reduction
-                  const baseEnergyCost = 0.8;
-                  const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
-                  const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
-                  return (energyCost * 2).toFixed(1);
-                })()}/sec
-              </div>
-            )}
-            {gameState.currentEnergy < 100 && gameState.isMining && (
-              <div className="text-xs text-red-500 font-mono animate-pulse font-bold">
-                ⚠️ LOW ENERGY WARNING!
-              </div>
-            )}
-            
-            {/* Energy Time Estimates */}
-            {gameState.isMining && (
-              <div className="text-xs text-orange-400 font-mono mt-1">
+        )}
+        
+        <div className="relative">
+          {/* Card Header */}
+          <CardHeader 
+            title="MINING STATION" 
+            isActive={gameState.isMining}
+            extraContent={
+              <div className="flex items-center space-x-2">
+                {gameState.isMining && (
+                  <div className="text-xs text-green-400 font-mono animate-pulse flex items-center space-x-1">
+                    <span>⚡</span>
+                    <span>{miningResumed ? 'RESUMED' : 'ACTIVE'}</span>
+                  </div>
+                )}
                 {(() => {
-                  const boostedRate = getEnhancedMiningRate();
-                  const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
-                  const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
-                  const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
-                  const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                  const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                  const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                  const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus); // Cap at 95% reduction
-                  const baseEnergyCost = 0.8;
-                  const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
-                  const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
-                  const timeToEmpty = gameState.currentEnergy / (energyCost * 2);
-                  
-                  if (timeToEmpty < 60) {
-                    return `⚠️ ${timeToEmpty.toFixed(0)}s until empty`;
-                  } else if (timeToEmpty < 3600) {
-                    return `⏰ ${(timeToEmpty / 60).toFixed(1)}m until empty`;
-                  } else {
-                    return `⏰ ${(timeToEmpty / 3600).toFixed(1)}h until empty`;
-                  }
+                  const autoMiningUpgrades = upgrades.filter(u => u.id === 'auto-mining');
+                  const hasAutoMining = autoMiningUpgrades.some(u => u.level > 0);
+                  return hasAutoMining ? (
+                    <div className="text-xs text-purple-400 font-mono animate-pulse flex items-center space-x-1">
+                      <span>🤖</span>
+                      <span>AUTO</span>
+                    </div>
+                  ) : null;
                 })()}
+              </div>
+            }
+          />
+          
+          {/* Main Content Grid */}
+          <div className="grid grid-cols-3 gap-4 items-center">
+            {/* Mining Core */}
+            <div className="flex flex-col items-center">
+              <div className="relative w-16 h-16 group cursor-pointer mb-2" onClick={toggleMining}>
+                {/* Core */}
+                <div className={`absolute inset-0 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full transition-all duration-500 ${
+                  gameState.isMining ? 'mining-station-active animate-pulse' : 'opacity-60'
+                }`}>
+                  <div className={`absolute inset-2 bg-gradient-to-br from-cyan-400 to-cyan-500 rounded-full transition-all duration-500 ${
+                    gameState.isMining ? 'animate-spin' : ''
+                  }`} style={{ animationDuration: '3s' }}>
+                    <div className={`absolute inset-1 bg-gradient-to-br from-cyan-300 to-cyan-400 rounded-full transition-all duration-300 ${
+                      gameState.isMining ? 'animate-pulse' : ''
+                    }`} />
+                  </div>
+                </div>
+                
+                {/* Orbital Rings */}
+                {gameState.isMining && (
+                  <>
+                    <div className="absolute inset-0 rounded-full border border-cyan-400/50 animate-spin" style={{ animationDuration: '4s' }} />
+                    <div className="absolute inset-1 rounded-full border border-blue-400/30 animate-spin" style={{ animationDuration: '6s', animationDirection: 'reverse' }} />
+                  </>
+                )}
+                
+                {/* Hover Effect */}
+                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-cyan-400/0 to-blue-500/0 group-hover:from-cyan-400/10 group-hover:to-blue-500/10 transition-all duration-300" />
+              </div>
+              
+              {/* Mining Button */}
+              <button 
+                onClick={toggleMining}
+                disabled={!gameState.isMining && gameState.currentEnergy < 1}
+                className={`font-mono font-bold px-4 py-2 rounded-lg transition-all duration-300 border text-xs tracking-wider ${
+                  gameState.isMining 
+                    ? 'bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white border-red-400' 
+                    : gameState.currentEnergy < 1
+                    ? 'bg-gradient-to-r from-gray-600 to-gray-500 text-gray-400 cursor-not-allowed border-gray-400'
+                    : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border-cyan-400'
+                }`}
+              >
+                {gameState.isMining ? '⏹️ STOP' : gameState.currentEnergy < 1 ? '⚠️ NO ENERGY' : '▶️ START'}
+              </button>
+            </div>
+            
+            {/* Energy Status */}
+            <div className="flex flex-col items-center">
+              {/* Energy Bar */}
+              <div className="relative w-full mb-2">
+                <div className="w-full bg-gray-800 rounded-full h-2 border border-gray-600 overflow-hidden">
+                  <div 
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      gameState.currentEnergy < 100 ? 'bg-gradient-to-r from-red-500 to-red-400' : 
+                      gameState.currentEnergy < 500 ? 'bg-gradient-to-r from-yellow-500 to-orange-400' : 
+                      gameState.isMining ? 'bg-gradient-to-r from-red-400 to-red-300' : 'bg-gradient-to-r from-blue-500 to-cyan-400'
+                    } ${gameState.isMining ? 'animate-pulse' : ''}`}
+                    style={{ width: `${(gameState.currentEnergy / gameState.maxEnergy) * 100}%` }}
+                  />
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-xs font-mono font-bold text-white drop-shadow-lg">
+                    {Math.round((gameState.currentEnergy / gameState.maxEnergy) * 100)}%
+                  </span>
+                </div>
+              </div>
+              
+              {/* Energy Info */}
+              <div className="text-center">
+                <div className="text-xs text-gray-400 font-mono">ENERGY</div>
+                <div className="text-sm font-mono font-bold text-cyan-300">
+                  {gameState.currentEnergy.toLocaleString()}/{gameState.maxEnergy.toLocaleString()}
+                </div>
+              </div>
+              
+              {/* Energy Flow */}
+              <div className="text-center mt-2">
+                {gameState.currentEnergy < gameState.maxEnergy && (
+                  <div className="text-xs text-blue-400 font-mono animate-pulse">
+                    +{(0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0)).toFixed(1)}/sec
+                  </div>
+                )}
+                {gameState.isMining && (
+                  <div className="text-xs text-red-400 font-mono">
+                    -{(() => {
+                      const boostedRate = getEnhancedMiningRate();
+                      const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                      const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+                      const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+                      const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                      const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                      const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                      const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+                      const baseEnergyCost = 0.8;
+                      const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
+                      const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
+                      return (energyCost * 2).toFixed(1);
+                    })()}/sec
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            {/* Mining Stats */}
+            <div className="flex flex-col items-center">
+              <div className="text-center mb-2">
+                <div className="text-xs text-gray-400 font-mono">MINING RATE</div>
+                <div className="text-sm font-mono font-bold text-green-300">
+                  {formatNumber(getBoostedMiningRate())}/sec
+                </div>
+              </div>
+              
+              {/* Efficiency */}
+              {(() => {
+                const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+                const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+                const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+                
+                return (
+                  <div className="text-center">
+                    <div className="text-xs text-gray-400 font-mono">EFFICIENCY</div>
+                    <div className="text-sm font-mono font-bold text-green-300">
+                      {(totalEfficiencyBonus * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+          
+          {/* Warnings and Status */}
+          <div className="mt-4 space-y-2">
+            {/* New Player Welcome */}
+            {isNewPlayer && (
+              <div className="text-center p-3 bg-gradient-to-r from-yellow-900/40 to-orange-900/40 border border-yellow-500/50 rounded-lg animate-pulse">
+                <div className="text-sm text-yellow-300 font-mono font-bold mb-1 flex items-center justify-center space-x-1">
+                  <span>🎉</span>
+                  <span>WELCOME TO DIVINE MINING!</span>
+                  <span>🎉</span>
+                </div>
+                <div className="text-xs text-yellow-400 font-mono">
+                  Click START to begin your mining journey! Your progress is automatically saved.
+                </div>
+              </div>
+            )}
+            
+            {/* Low Energy Warning */}
+            {gameState.currentEnergy < 100 && gameState.isMining && (
+              <div className="text-center p-2 bg-red-900/40 border border-red-500/50 rounded-lg animate-pulse">
+                <div className="text-xs text-red-400 font-mono font-bold flex items-center justify-center space-x-1">
+                  <span>⚠️</span>
+                  <span>LOW ENERGY WARNING!</span>
+                  <span>⚠️</span>
+                </div>
               </div>
             )}
             
@@ -2423,7 +4027,6 @@ export const DivineMiningGame: React.FC = () => {
               if (!hasAutoMining) return null;
               
               if (!gameState.isMining) {
-                // Calculate when auto-mining will restart
                 const boostedRate = getEnhancedMiningRate();
                 const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
                 const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
@@ -2436,7 +4039,7 @@ export const DivineMiningGame: React.FC = () => {
                 const baseEnergyCost = 0.8;
                 const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
                 const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
-                const minimumEnergyRequired = energyCost * 2 * 5; // 5 seconds worth
+                const minimumEnergyRequired = energyCost * 2 * 5;
                 
                 const energyRegen = 0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0);
                 const energyNeeded = minimumEnergyRequired - gameState.currentEnergy;
@@ -2444,921 +4047,413 @@ export const DivineMiningGame: React.FC = () => {
                 
                 if (timeToRestart > 0) {
                   return (
-                    <div className="text-xs text-purple-400 font-mono mt-1 animate-pulse">
-                      🤖 Auto-restart in {timeToRestart < 60 ? `${timeToRestart.toFixed(0)}s` : `${(timeToRestart / 60).toFixed(1)}m`}
-                    </div>
-                  );
-                } else {
-                  return (
-                    <div className="text-xs text-purple-400 font-mono mt-1 animate-pulse">
-                      🤖 Auto-restarting soon...
+                    <div className="text-center p-2 bg-purple-900/30 border border-purple-500/30 rounded-lg animate-pulse">
+                      <div className="text-xs text-purple-400 font-mono font-bold mb-1 flex items-center justify-center space-x-1">
+                        <span>🤖</span>
+                        <span>AUTO-RESTART IN {timeToRestart < 60 ? `${timeToRestart.toFixed(0)}s` : `${(timeToRestart / 60).toFixed(1)}m`}</span>
+                      </div>
                     </div>
                   );
                 }
-              } else {
-                return (
-                  <div className="text-xs text-purple-400 font-mono mt-1">
-                    🤖 Auto-mining active
-                  </div>
-                );
               }
-            })()}
-            
-            {/* Offline Earnings Prediction */}
-            {gameState.isMining && (
-              <div className="mt-3 p-2 bg-purple-900/30 border border-purple-500/30 rounded-lg offline-predictions">
-                <div className="text-xs text-purple-400 font-mono font-bold mb-1">OFFLINE PREDICTIONS:</div>
-                <div className="text-xs text-purple-300 space-y-1">
-                  <div>1h: {formatNumber(getPotentialOfflineEarnings(1).totalEarnings)} points</div>
-                  <div>8h: {formatNumber(getPotentialOfflineEarnings(8).totalEarnings)} points</div>
-                  <div>24h: {formatNumber(getPotentialOfflineEarnings(24).totalEarnings)} points</div>
-                  <div className="text-purple-400">
-                    +{formatNumber(getPotentialOfflineEarnings(24).energyRegen)} energy
+              
+              return (
+                <div className="text-center p-2 bg-purple-900/30 border border-purple-500/30 rounded-lg">
+                  <div className="text-xs text-purple-400 font-mono font-bold flex items-center justify-center space-x-1">
+                    <span>🤖</span>
+                    <span>AUTO-MINING ACTIVE</span>
                   </div>
-                  {gameState.unclaimedOfflineRewards > 0 && (
-                    <div className="text-yellow-400 font-bold border-t border-purple-500/30 pt-1 mt-1">
-                      +{formatNumber(gameState.unclaimedOfflineRewards)} unclaimed rewards
-                    </div>
-                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      </div>
+
+      {/* Upgrades Section - UNIFIED CARD */}  
+      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] upgrades-section game-card-frame">
+        {/* Futuristic Corner Accents */}
+        <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400 corner-accent"></div>
+        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400 corner-accent"></div>
+        
+        {/* Enhanced Upgrades Grid with Categories */}
+        <div className="space-y-4">
+         
+          {/* Unified Upgrades Card */}
+          <div className="">
+            {/* Card Header */}
+            <CardHeader 
+              title="UPGRADES & CONTROLS" 
+              showToggle={true}
+              toggleState={showHelp}
+              onToggle={() => setShowHelp(!showHelp)}
+              toggleText="HELP"
+              toggleIcon="❓"
+            />
+
+            {/* Collapsible Help Section */}
+            {showHelp && (
+              <div className="mb-4 p-4 bg-gray-800/50 border border-cyan-500/30 rounded-lg max-h-96 overflow-y-auto">
+                <div className="text-cyan-300 font-mono font-bold text-lg mb-4 text-center">🎮 DIVINE MINING GAME - COMPLETE GUIDE</div>
+                
+                {/* Getting Started */}
+                <div className="mb-4">
+                  <div className="text-yellow-300 font-mono font-bold text-sm mb-2">🚀 GETTING STARTED</div>
+                  <div className="text-gray-400 font-mono text-xs space-y-1">
+                    <div>• Click "START MINING" to begin earning Divine Points</div>
+                    <div>• Your mining rate starts at 1 point per second</div>
+                    <div>• Energy is consumed while mining and regenerates over time</div>
+                    <div>• Purchase upgrades to increase efficiency and speed</div>
+                    <div>• Progress is automatically saved every 30 seconds</div>
+                  </div>
+                </div>
+
+                {/* Core Mechanics */}
+                <div className="mb-4">
+                  <div className="text-green-300 font-mono font-bold text-sm mb-2">⚡ CORE MECHANICS</div>
+                  <div className="text-gray-400 font-mono text-xs space-y-1">
+                    <div className="text-green-400 font-semibold">Mining System:</div>
+                    <div>• Mining consumes energy at a rate based on your mining speed</div>
+                    <div>• Higher mining rates consume more energy per second</div>
+                    <div>• Energy regenerates at 0.3/s base rate (can be upgraded)</div>
+                    <div>• Mining stops automatically when energy reaches zero</div>
+                    
+                    <div className="text-green-400 font-semibold mt-2">Energy Management:</div>
+                    <div>• Monitor your energy bar to avoid running out</div>
+                    <div>• Low energy warnings appear when energy drops below 100</div>
+                    <div>• Energy efficiency upgrades reduce consumption costs</div>
+                    <div>• Energy capacity upgrades increase maximum energy</div>
+                  </div>
+                </div>
+
+                {/* Upgrade System */}
+                <div className="mb-4">
+                  <div className="text-blue-300 font-mono font-bold text-sm mb-2">🔧 UPGRADE SYSTEM</div>
+                  <div className="text-gray-400 font-mono text-xs space-y-1">
+                    <div className="text-blue-400 font-semibold">Mining Speed Upgrades:</div>
+                    <div>• Increase your base mining rate per second</div>
+                    <div>• Each level provides a 50% increase in mining speed</div>
+                    <div>• Higher levels cost exponentially more points</div>
+                    
+                    <div className="text-blue-400 font-semibold mt-2">Energy Efficiency Upgrades:</div>
+                    <div>• Energy Efficiency: Reduces energy consumption by 10% per level</div>
+                    <div>• Energy Sustain: Additional 20% cost reduction per level</div>
+                    <div>• Energy Mastery: Massive 30% cost reduction per level</div>
+                    <div>• Maximum efficiency reduction is capped at 95%</div>
+                    
+                    <div className="text-blue-400 font-semibold mt-2">Energy Regeneration Upgrades:</div>
+                    <div>• Energy Regen: Increases regeneration rate by 0.1/s per level</div>
+                    <div>• Energy Burst: Dramatic regeneration boost of 0.5/s per level</div>
+                    <div>• Energy Overflow: Increases maximum energy capacity</div>
+                    
+                    <div className="text-blue-400 font-semibold mt-2">Advanced Upgrades:</div>
+                    <div>• Auto-Mining: Automatically restarts mining when energy is available</div>
+                    <div>• Divine Resonance: Makes all boosts 50% more effective</div>
+                    <div>• Offline Efficiency: Provides bonuses for offline time</div>
+                  </div>
+                </div>
+
+                {/* Advanced Strategies */}
+                <div className="mb-4">
+                  <div className="text-purple-300 font-mono font-bold text-sm mb-2">🎯 ADVANCED STRATEGIES</div>
+                  <div className="text-gray-400 font-mono text-xs space-y-1">
+                    <div className="text-purple-400 font-semibold">Early Game (0-10,000 points):</div>
+                    <div>• Focus on Mining Speed upgrades first</div>
+                    <div>• Purchase Energy Efficiency upgrades to reduce costs</div>
+                    <div>• Balance mining speed with energy sustainability</div>
+                    <div>• Don't let energy run completely empty</div>
+                    
+                    <div className="text-purple-400 font-semibold mt-2">Mid Game (10,000-1,000,000 points):</div>
+                    <div>• Invest heavily in Energy Sustain and Energy Mastery</div>
+                    <div>• Purchase Auto-Mining for hands-free operation</div>
+                    <div>• Energy Burst upgrades for rapid regeneration</div>
+                    <div>• Plan offline periods to maximize efficiency bonuses</div>
+                    
+                    <div className="text-purple-400 font-semibold mt-2">Late Game (1,000,000+ points):</div>
+                    <div>• Energy Overflow for massive capacity increases</div>
+                    <div>• Divine Resonance for maximum boost effectiveness</div>
+                    <div>• Offline Efficiency for strategic breaks</div>
+                    <div>• Optimize for maximum points per second</div>
+                  </div>
+                </div>
+
+                {/* Version Info */}
+                <div className="text-center pt-3 border-t border-cyan-500/20">
+                  <div className="text-xs text-gray-500 font-mono">
+                    Divine Mining Game v{gameState.version} | Complete Professional Guide
+                  </div>
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      </div>
 
-      {/* Upgrades Section */}
-      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] upgrades-section">
-        {/* Futuristic Corner Accents */}
-        <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
-        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
-        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
-        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
-        
-        <div className="mb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-              <span className="text-cyan-400 font-mono font-bold tracking-wider">UPGRADES</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setShowHelp(!showHelp)}
-                className="text-xs text-cyan-400 hover:text-cyan-300 font-mono tracking-wide game-button help-button"
-              >
-                {showHelp ? 'HIDE HELP' : 'SHOW HELP'}
-              </button>
-              <button
-                onClick={() => setShowDebug(!showDebug)}
-                className="text-xs text-purple-400 hover:text-purple-300 font-mono tracking-wide game-button"
-              >
-                {showDebug ? 'HIDE DEBUG' : 'DEBUG'}
-              </button>
-              <button
-                onClick={prestige}
-                className="text-xs text-purple-400 hover:text-purple-300 font-mono tracking-wide game-button"
-              >
-                PRESTIGE
-              </button>
-              <button
-                onClick={resetGame}
-                className="text-xs text-red-400 hover:text-red-300 font-mono tracking-wide game-button"
-              >
-                RESET
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {showHelp && (
-          <div className="mb-4 p-3 bg-gray-800/50 border border-cyan-500/30 rounded-lg">
-            <div className="text-cyan-300 font-mono font-bold text-sm mb-2">HOW TO PLAY:</div>
-            <div className="text-gray-400 font-mono text-xs space-y-1">
-              <div>• Click "ACTIVATE MINING" to start earning points</div>
-              <div>• Purchase upgrades to increase your mining speed</div>
-              <div>• Your progress is automatically saved every 30 seconds</div>
-              <div>• You earn points even when the game is closed</div>
-              <div>• Unlock achievements by reaching milestones</div>
-              <div>• Use Export/Import to backup your progress</div>
-            </div>
-            
-            <div className="mt-4 pt-3 border-t border-cyan-500/20">
-              <div className="text-yellow-300 font-mono font-bold text-sm mb-2">🚀 PRO TIPS:</div>
-              <div className="text-gray-400 font-mono text-xs space-y-1">
-                <div className="text-yellow-400 font-semibold">📈 Offline Strategy:</div>
-                <div>• Plan offline periods to maximize efficiency bonuses</div>
-                <div>• Longer offline time = bigger bonus (up to 140%)</div>
-                <div>• Energy regenerates while offline</div>
-                
-                <div className="text-yellow-400 font-semibold mt-2">⚡ Energy Management:</div>
-                <div>• Invest in Energy Efficiency upgrades early</div>
-                <div>• Energy Sustain reduces costs by 20% per level</div>
-                <div>• Energy Mastery provides massive 30% cost reduction</div>
-                <div>• Energy Burst dramatically increases regeneration</div>
-                <div>• Energy Overflow gives massive capacity increases</div>
-                <div>• Auto-mining starts automatically when energy is available</div>
-                
-                <div className="text-yellow-400 font-semibold mt-2">⚡ Energy Strategy:</div>
-                <div>• Balance mining speed with energy efficiency</div>
-                <div>• Higher mining rates consume more energy</div>
-                <div>• Efficiency upgrades stack multiplicatively</div>
-                <div>• Plan offline periods to let energy regenerate</div>
-                <div>• Monitor "time until empty" for optimal mining</div>
-                
-                <div className="text-yellow-400 font-semibold mt-2">🤖 Auto-Mining System:</div>
-                <div>• Auto-mining starts when you have sufficient energy</div>
-                <div>• Automatically restarts when energy regenerates</div>
-                <div>• Requires 5-10 seconds worth of energy to start</div>
-                <div>• Shows countdown until auto-restart</div>
-                <div>• Works perfectly with energy efficiency upgrades</div>
-                
-                <div className="text-yellow-400 font-semibold mt-2">🎯 Upgrade Priority:</div>
-                <div>• Mining Speed → Energy Efficiency → Energy Sustain</div>
-                <div>• Energy Mastery for late-game efficiency</div>
-                <div>• Energy Burst for rapid regeneration</div>
-                <div>• Energy Overflow for massive capacity</div>
-                <div>• Divine Resonance multiplies boost effectiveness</div>
-                <div>• Offline Efficiency rewards strategic breaks</div>
-                
-                <div className="text-yellow-400 font-semibold mt-2">🛡️ Data Safety:</div>
-                <div>• Export save data regularly using debug menu</div>
-                <div>• App creates backups every 5 minutes</div>
-                <div>• Multiple save slots prevent data loss</div>
-                
-                <div className="text-yellow-400 font-semibold mt-2">📊 Session Management:</div>
-                <div>• Session data is saved separately for reliability</div>
-                <div>• Session duration tracks total play time</div>
-                <div>• Daily/weekly resets are preserved across sessions</div>
-                <div>• Use debug menu to manually save/load session data</div>
-                
-                <div className="text-yellow-400 font-semibold mt-2">🎁 Offline Rewards System:</div>
-                <div>• Earn rewards even when the app is closed</div>
-                <div>• Rewards accumulate and can be claimed anytime</div>
-                <div>• Longer offline time = bigger efficiency bonuses</div>
-                <div>• Claim rewards to add them to your total points</div>
-                
-                <div className="text-yellow-400 font-semibold mt-2">💎 Boost Strategy:</div>
-                <div>• Use boosts during active mining sessions</div>
-                <div>• Divine Resonance makes boosts 50% more effective</div>
-                <div>• Combine upgrades for maximum synergy</div>
+            {/* Recommended Upgrades Section */}
+           
+            {/* Smart Filtering Controls */}
+            <div className="mb-4 space-y-3">
+              {/* Filter Tabs */}
+              <div className="flex flex-wrap gap-2 justify-center">
+                {(['all', 'affordable', 'recommended', 'category'] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setUpgradeFilter(filter)}
+                    className={`font-mono font-bold px-3 py-2 rounded-lg text-xs transition-all duration-300 border-2 ${
+                      upgradeFilter === filter
+                        ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white border-cyan-400 shadow-lg'
+                        : 'bg-gradient-to-r from-gray-700 to-gray-600 text-gray-300 border-gray-500 hover:border-cyan-400 hover:text-cyan-300'
+                    }`}
+                  >
+                    {getFilterDisplayName(filter)}
+                  </button>
+                ))}
               </div>
-            </div>
-          </div>
-        )}
 
-        {showDebug && (
-          <div className="mb-4 p-4 bg-purple-900/50 border border-purple-500/30 rounded-lg">
-            <div className="text-purple-300 font-mono font-bold text-sm mb-3 flex items-center justify-between">
-              <span>🔧 DEBUG PANEL</span>
-              <div className="text-xs text-purple-400">
-                Version: {gameState.version} | Last Save: {new Date(gameState.lastSaveTime).toLocaleTimeString()}
-              </div>
-            </div>
-            
-            {/* Game State Info */}
-            <div className="mb-4 p-3 bg-purple-800/30 border border-purple-500/20 rounded">
-              <div className="text-purple-200 font-mono font-bold text-xs mb-2">📊 GAME STATE:</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                <div className="text-purple-300">Points: {gameState.divinePoints.toLocaleString()}</div>
-                <div className="text-purple-300">Rate: {gameState.pointsPerSecond}/s</div>
-                <div className="text-purple-300">Energy: {gameState.currentEnergy}/{gameState.maxEnergy}</div>
-                <div className="text-purple-300">Mining: {gameState.isMining ? 'ON' : 'OFF'}</div>
-                <div className="text-purple-300">Session: {getSessionDuration()}</div>
-                <div className="text-purple-300">High Score: {gameState.highScore.toLocaleString()}</div>
-                <div className="text-purple-300">Upgrades: {gameState.upgradesPurchased}</div>
-                <div className="text-purple-300">Offline: {gameState.unclaimedOfflineRewards.toLocaleString()}</div>
+              {/* Category Selector (only show when category filter is active) */}
+              {upgradeFilter === 'category' && (
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {getAvailableCategories().map((category) => (
+                    <button
+                      key={category}
+                      onClick={() => setSelectedCategory(category)}
+                      className={`font-mono font-bold px-3 py-2 rounded-lg text-xs transition-all duration-300 border-2 ${
+                        selectedCategory === category
+                          ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-purple-400 shadow-lg'
+                          : 'bg-gradient-to-r from-gray-700 to-gray-600 text-gray-300 border-gray-500 hover:border-purple-400 hover:text-purple-300'
+                      }`}
+                    >
+                      {getCategoryDisplayName(category)}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Results Summary */}
+              <div className="text-center">
+                <div className="text-xs text-gray-400 font-mono">
+                  Showing {getPaginatedUpgrades().length} of {getFilteredUpgrades().length} upgrades 
+                  {getTotalPages() > 1 && ` (Page ${currentUpgradePage} of ${getTotalPages()})`}
+                </div>
               </div>
             </div>
 
-            {/* Save Management */}
-            <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500/20 rounded">
-              <div className="text-blue-200 font-mono font-bold text-xs mb-2">💾 SAVE MANAGEMENT:</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <button
-                  onClick={exportSave}
-                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📤 EXPORT
-                </button>
-                <button
-                  onClick={importSave}
-                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📥 IMPORT
-                </button>
-                <button
-                  onClick={manualSave}
-                  className="text-xs bg-orange-600 hover:bg-orange-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  💾 SAVE NOW
-                </button>
-                <button
-                  onClick={forceSave}
-                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  ⚡ FORCE SAVE
-                </button>
-              </div>
-            </div>
+            {/* Paginated Upgrades Grid */}
+            <div className="space-y-4">
+              {/* Upgrades Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                {getPaginatedUpgrades().map((upgrade) => (
+                  <div key={upgrade.id} className={`${getUpgradeCategoryBg(upgrade.category)} rounded-xl p-4 upgrade-${upgrade.id} hover:bg-gray-700/50 transition-all duration-300 border-2 ${getUpgradeCategoryColor(upgrade.category).split(' ')[1]} hover:scale-105 hover:shadow-lg relative overflow-hidden group`}>
+                    {/* Upgrade Icon */}
+                    <div className="text-center mb-3">
+                      <div className={`w-12 h-12 mx-auto rounded-full flex items-center justify-center text-2xl mb-2 ${getUpgradeCategoryColor(upgrade.category).split(' ')[0]} bg-gray-800/50 border-2 ${getUpgradeCategoryColor(upgrade.category).split(' ')[1]}`}>
+                        {upgrade.id.includes('mining') ? '⛏️' :
+                         upgrade.id.includes('energy') ? '⚡' :
+                         upgrade.id.includes('auto') ? '🤖' :
+                         upgrade.id.includes('divine') ? '✨' :
+                         upgrade.id.includes('cosmic') ? '🌌' :
+                         upgrade.id.includes('stellar') ? '⭐' :
+                         upgrade.id.includes('galactic') ? '🌠' :
+                         upgrade.id.includes('offline') ? '💤' :
+                         upgrade.id.includes('resonance') ? '🎵' :
+                         upgrade.id.includes('mastery') ? '👑' :
+                         upgrade.id.includes('overflow') ? '💧' :
+                         upgrade.id.includes('burst') ? '💥' :
+                         upgrade.id.includes('sustain') ? '🛡️' :
+                         upgrade.id.includes('efficiency') ? '🔧' :
+                         upgrade.id.includes('regen') ? '🔄' :
+                         upgrade.id.includes('capacity') ? '📦' : '🔮'}
+                      </div>
+                    </div>
 
-            {/* Tutorial Management */}
-            <div className="mb-4 p-3 bg-cyan-900/30 border border-cyan-500/20 rounded">
-              <div className="text-cyan-200 font-mono font-bold text-xs mb-2">🎓 TUTORIAL MANAGEMENT:</div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                <button
-                  onClick={() => {
-                    console.log('=== TUTORIAL RESET ===');
-                    resetTutorial();
-                    setSaveMessage('Tutorial reset! Will start automatically for new players.');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🔄 RESET TUTORIAL
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== FORCE TUTORIAL START ===');
-                    startTutorial();
-                    setSaveMessage('Tutorial started manually!');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-cyan-600 hover:bg-cyan-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  ▶️ START TUTORIAL
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== TUTORIAL STATUS ===');
-                    console.log('Tutorial State:', tutorialState);
-                    setSaveMessage(`Tutorial: ${tutorialState.isCompleted ? 'Completed' : 'Active'} (Step ${tutorialState.currentStep + 1})`);
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-gray-600 hover:bg-gray-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📊 TUTORIAL STATUS
-                </button>
-              </div>
-            </div>
+                    {/* Upgrade Name */}
+                    <div className={`font-mono font-bold text-sm tracking-wide text-center mb-2 ${getUpgradeCategoryColor(upgrade.category).split(' ')[0]} line-clamp-2`}>
+                      {upgrade.name}
+                    </div>
 
-            {/* Session Management */}
-            <div className="mb-4 p-3 bg-green-900/30 border border-green-500/20 rounded">
-              <div className="text-green-200 font-mono font-bold text-xs mb-2">⏰ SESSION MANAGEMENT:</div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                <button
-                  onClick={() => {
-                    console.log('=== SESSION RESET ===');
-                    const newSessionStartTime = Date.now();
-                    const today = new Date().toDateString();
-                    
-                    setGameState(prev => ({
-                      ...prev,
-                      sessionStartTime: newSessionStartTime,
-                      lastDailyReset: today,
-                      lastWeeklyReset: today,
-                      lastSaveTime: Date.now()
-                    }));
-                    
-                    // Save session data immediately
-                    const sessionData = {
-                      sessionStartTime: newSessionStartTime,
-                      lastDailyReset: today,
-                      lastWeeklyReset: today,
-                      lastSaveTime: Date.now(),
-                      version: gameState.version
-                    };
-                    localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
-                    
-                    console.log('Session reset successful:', sessionData);
-                    setSaveMessage('Session reset! New session started.');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🔄 RESET SESSION
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== MANUAL SESSION LOAD ===');
-                    
-                    const savedSession = localStorage.getItem(SESSION_KEY);
-                    if (savedSession) {
-                      try {
-                        const session = JSON.parse(savedSession);
-                        console.log('Manual session load successful:', session);
-                        setGameState(prev => ({
-                          ...prev,
-                          sessionStartTime: session.sessionStartTime || prev.sessionStartTime,
-                          lastDailyReset: session.lastDailyReset || prev.lastDailyReset,
-                          lastWeeklyReset: session.lastWeeklyReset || prev.lastWeeklyReset,
-                          lastSaveTime: Date.now()
-                        }));
-                        setSaveMessage(`Session loaded! Duration: ${getSessionDuration()}`);
-                        setTimeout(() => setSaveMessage(''), 3000);
-                      } catch (error) {
-                        console.error('Manual session load error:', error);
-                        setSaveMessage('Error loading session data');
-                        setTimeout(() => setSaveMessage(''), 3000);
-                      }
-                    } else {
-                      console.log('No session data to load');
-                      setSaveMessage('No session data found');
-                      setTimeout(() => setSaveMessage(''), 3000);
-                    }
-                  }}
-                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📥 LOAD SESSION
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== SESSION INFO ===');
-                    console.log('Session Start:', new Date(gameState.sessionStartTime).toLocaleString());
-                    console.log('Daily Reset:', gameState.lastDailyReset);
-                    console.log('Weekly Reset:', gameState.lastWeeklyReset);
-                    console.log('Duration:', getSessionDuration());
-                    setSaveMessage(`Session: ${getSessionDuration()} | Daily: ${gameState.lastDailyReset}`);
-                    setTimeout(() => setSaveMessage(''), 4000);
-                  }}
-                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📊 SESSION INFO
-                </button>
-              </div>
-            </div>
+                    {/* Level Badge */}
+                    <div className="text-center mb-3">
+                      <div className={`inline-block px-2 py-1 rounded-full text-xs font-mono font-bold ${
+                        isUpgradeMaxed(upgrade) ? 'bg-purple-600 text-white animate-pulse' :
+                        upgrade.level === 0 ? 'bg-gray-600 text-gray-300' :
+                        upgrade.level < 5 ? 'bg-green-600 text-white' :
+                        upgrade.level < 10 ? 'bg-blue-600 text-white' :
+                        upgrade.level < 20 ? 'bg-purple-600 text-white' :
+                        'bg-red-600 text-white'
+                      }`}>
+                        {isUpgradeMaxed(upgrade) ? 'MAX' : `LVL ${upgrade.level}`}
+                      </div>
+                    </div>
 
-            {/* Energy Management */}
-            <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-500/20 rounded">
-              <div className="text-yellow-200 font-mono font-bold text-xs mb-2">⚡ ENERGY MANAGEMENT:</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <button
-                  onClick={() => {
-                    console.log('=== ENERGY DEBUG ===');
-                    console.log('Current Energy:', gameState.currentEnergy);
-                    console.log('Max Energy:', gameState.maxEnergy);
-                    console.log('Is Mining:', gameState.isMining);
-                    
-                    // Calculate energy cost
-                    const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
-                    const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                    const baseEnergyCost = 1;
-                    const energyCost = Math.max(0.1, baseEnergyCost * (1 + efficiencyBonus));
-                    
-                    console.log('Energy Efficiency Upgrades:', energyEfficiencyUpgrades);
-                    console.log('Efficiency Bonus:', efficiencyBonus);
-                    console.log('Base Energy Cost:', baseEnergyCost);
-                    console.log('Final Energy Cost:', energyCost);
-                    console.log('Can Mine:', gameState.currentEnergy >= energyCost);
-                    
-                    // Calculate energy regen
-                    const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
-                    const energyBurstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
-                    const regenBonus = energyRegenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                    const burstBonus = energyBurstUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                    const baseRegen = 1;
-                    const totalRegen = baseRegen + regenBonus + burstBonus;
-                    
-                    console.log('Energy Regen Upgrades:', energyRegenUpgrades);
-                    console.log('Regen Bonus:', regenBonus);
-                    console.log('Burst Bonus:', burstBonus);
-                    console.log('Total Regen:', totalRegen);
-                  }}
-                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🔍 ENERGY DEBUG
-                </button>
-                <button
-                  onClick={() => {
-                    // Manually consume energy for testing
-                    const energyCost = 100;
-                    setGameState(prev => {
-                      if (prev.currentEnergy >= energyCost) {
-                        console.log(`Manual energy consumption: -${energyCost} energy`);
-                        setSaveMessage(`Manual energy consumption: -${energyCost} energy`);
-                        setTimeout(() => setSaveMessage(''), 2000);
-                        return {
-                          ...prev,
-                          currentEnergy: prev.currentEnergy - energyCost
-                        };
-                      } else {
-                        console.log(`Cannot consume energy: Not enough (${prev.currentEnergy} < ${energyCost})`);
-                        setSaveMessage(`Cannot consume energy: Not enough (${prev.currentEnergy} < ${energyCost})`);
-                        setTimeout(() => setSaveMessage(''), 2000);
-                        return prev;
-                      }
-                    });
-                  }}
-                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  ⚡ CONSUME 100
-                </button>
-                <button
-                  onClick={() => {
-                    // Manually restore energy for testing
-                    const energyRestore = 1000;
-                    setGameState(prev => {
-                      const newEnergy = Math.min(prev.maxEnergy, prev.currentEnergy + energyRestore);
-                      console.log(`Manual energy restore: +${energyRestore} energy (${prev.currentEnergy} -> ${newEnergy})`);
-                      setSaveMessage(`Manual energy restore: +${energyRestore} energy`);
-                      setTimeout(() => setSaveMessage(''), 2000);
-                      return {
-                        ...prev,
-                        currentEnergy: newEnergy
-                      };
-                    });
-                  }}
-                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🔋 RESTORE 1000
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== ENERGY CONSUMPTION TEST ===');
-                    
-                    // Calculate current energy consumption
-                    const boostedRate = getBoostedMiningRate();
-                    const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
-                    const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                    const baseEnergyCost = 1;
-                    const miningSpeedMultiplier = Math.max(1, boostedRate / gameState.pointsPerSecond);
-                    const energyCost = Math.max(0.25, baseEnergyCost * miningSpeedMultiplier * (1 + efficiencyBonus));
-                    
-                    console.log('Current mining rate:', boostedRate);
-                    console.log('Mining speed multiplier:', miningSpeedMultiplier);
-                    console.log('Energy cost per 500ms:', energyCost);
-                    console.log('Energy cost per second:', energyCost * 2);
-                    console.log('Current energy:', gameState.currentEnergy);
-                    console.log('Time to empty:', gameState.currentEnergy / (energyCost * 2), 'seconds');
-                    
-                    setSaveMessage(`Energy consumption: ${(energyCost * 2).toFixed(2)}/sec (${(gameState.currentEnergy / (energyCost * 2)).toFixed(1)}s remaining)`);
-                    setTimeout(() => setSaveMessage(''), 4000);
-                  }}
-                  className="text-xs bg-yellow-600 hover:bg-yellow-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  ⏱️ CONSUMPTION TEST
-                </button>
-              </div>
-            </div>
+                    {/* Effect */}
+                    <div className="text-gray-400 font-mono text-xs text-center mb-3 line-clamp-2">
+                      {upgrade.effect}
+                    </div>
 
-            {/* Offline Rewards */}
-            <div className="mb-4 p-3 bg-purple-900/30 border border-purple-500/20 rounded">
-              <div className="text-purple-200 font-mono font-bold text-xs mb-2">🎁 OFFLINE REWARDS:</div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                <button
-                  onClick={() => {
-                    console.log('=== OFFLINE REWARD TEST ===');
-                    
-                    // Simulate offline rewards
-                    const testRewards = 5000;
-                    setGameState(prev => ({
-                      ...prev,
-                      unclaimedOfflineRewards: prev.unclaimedOfflineRewards + testRewards,
-                      lastOfflineRewardTime: Date.now()
-                    }));
-                    
-                    setOfflineRewardNotification(`🎁 Test offline rewards added: +${testRewards} points`);
-                    setShowOfflineRewards(true);
-                    
-                    console.log(`Test offline rewards added: +${testRewards} points`);
-                    setSaveMessage(`Test offline rewards added: +${testRewards} points`);
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🎁 ADD TEST REWARDS
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== CLEAR OFFLINE REWARDS ===');
-                    
-                    setGameState(prev => ({
-                      ...prev,
-                      unclaimedOfflineRewards: 0,
-                      lastOfflineRewardTime: Date.now()
-                    }));
-                    
-                    setShowOfflineRewards(false);
-                    setOfflineRewardNotification('');
-                    
-                    console.log('Offline rewards cleared');
-                    setSaveMessage('Offline rewards cleared');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🗑️ CLEAR REWARDS
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== OFFLINE REWARDS INFO ===');
-                    console.log('Unclaimed Rewards:', gameState.unclaimedOfflineRewards);
-                    console.log('Offline Efficiency Bonus:', gameState.offlineEfficiencyBonus);
-                    console.log('Last Offline Time:', new Date(gameState.lastOfflineTime).toLocaleString());
-                    console.log('Last Reward Time:', new Date(gameState.lastOfflineRewardTime).toLocaleString());
-                    setSaveMessage(`Offline: ${gameState.unclaimedOfflineRewards.toLocaleString()} unclaimed, +${(gameState.offlineEfficiencyBonus * 100).toFixed(1)}% bonus`);
-                    setTimeout(() => setSaveMessage(''), 4000);
-                  }}
-                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📊 REWARDS INFO
-                </button>
-              </div>
-            </div>
+                    {/* Cost */}
+                    <div className="text-gray-500 font-mono text-xs text-center mb-3">
+                      <div className="flex items-center justify-center space-x-1">
+                        <span className="text-yellow-400">💰</span>
+                        <span>{formatNumber(getUpgradeCost(upgrade))} DP</span>
+                      </div>
+                    </div>
 
-            {/* System Info */}
-            <div className="mb-4 p-3 bg-gray-800/30 border border-gray-500/20 rounded">
-              <div className="text-gray-200 font-mono font-bold text-xs mb-2">🔧 SYSTEM INFO:</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <button
-                  onClick={() => {
-                    console.log('=== SAVE STATUS ===');
-                    console.log('Current points:', gameState.divinePoints);
-                    console.log('Save status:', lastSaveStatus);
-                    console.log('Save message:', saveMessage);
-                    console.log('Last save time:', new Date(gameState.lastSaveTime).toLocaleString());
-                  }}
-                  className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  💾 SAVE STATUS
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== LOCALSTORAGE INSPECTION ===');
-                    console.log('SAVE_KEY:', localStorage.getItem(SAVE_KEY));
-                    console.log('BACKUP_KEY:', localStorage.getItem(BACKUP_KEY));
-                    console.log('HIGH_SCORE_KEY:', localStorage.getItem(HIGH_SCORE_KEY));
-                    console.log('DIVINE_POINTS_KEY:', localStorage.getItem(DIVINE_POINTS_KEY));
-                    console.log('TOTAL_EARNED_KEY:', localStorage.getItem(TOTAL_EARNED_KEY));
-                    console.log('SESSION_KEY:', localStorage.getItem(SESSION_KEY));
-                    console.log('Upgrades:', localStorage.getItem('divineMiningUpgrades'));
-                    console.log('Prestige Multiplier:', localStorage.getItem('divineMiningPrestigeMultiplier'));
-                    console.log('All localStorage keys:', Object.keys(localStorage));
-                    console.log('Current game state:', gameState);
-                    console.log('Has loaded saved data:', hasLoadedSavedData);
-                    
-                    // Try to parse saved data
-                    try {
-                      const saved = localStorage.getItem(SAVE_KEY);
-                      if (saved) {
-                        const parsed = JSON.parse(saved);
-                        console.log('Parsed save data:', parsed);
-                        console.log('Validation result:', validateGameState(parsed));
+                    {/* Efficiency indicator */}
+                    <div className="text-gray-600 font-mono text-xs text-center mb-4">
+                      <div className="flex items-center justify-center space-x-1">
+                        <span className="text-blue-400">⚖️</span>
+                        <span>{formatNumber(getUpgradeEfficiency(upgrade))}</span>
+                      </div>
+                    </div>
+
+                    {/* Upgrade Button */}
+                    <div className="text-center">
+                      <button 
+                        onClick={() => purchaseUpgrade(upgrade.id)}
+                        disabled={!canPurchaseUpgrade(upgrade)}
+                        className={`font-mono font-bold px-4 py-2 rounded-lg text-xs transition-all duration-300 border-2 w-full ${
+                          isUpgradeMaxed(upgrade)
+                            ? 'upgrade-maxed cursor-not-allowed bg-gradient-to-r from-purple-600 to-purple-500 text-white border-purple-400 shadow-lg'
+                            : canPurchaseUpgrade(upgrade)
+                            ? 'upgrade-available hover:scale-105 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white border-green-400 shadow-lg hover:shadow-xl'
+                            : 'upgrade-unavailable cursor-not-allowed bg-gradient-to-r from-gray-600 to-gray-500 text-gray-400 border-gray-400'
+                        }`}
+                      >
+                        {isUpgradeMaxed(upgrade) ? '🏆 MAXED' : canPurchaseUpgrade(upgrade) ? '⚡ UPGRADE' : '🔒 LOCKED'}
+                      </button>
+                    </div>
+
+                    {/* Category Indicator */}
+                    <div className={`absolute top-2 right-2 w-3 h-3 rounded-full border-2 ${getUpgradeCategoryColor(upgrade.category).split(' ')[1]} ${
+                      upgrade.category === 'early' ? 'bg-green-400' :
+                      upgrade.category === 'mid' ? 'bg-blue-400' :
+                      upgrade.category === 'late' ? 'bg-purple-400' :
+                      upgrade.category === 'endgame' ? 'bg-yellow-400' :
+                      upgrade.category === 'legendary' ? 'bg-red-400' : 'bg-cyan-400'
+                    }`}></div>
+
+                    {/* Hover Effect Overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pagination Controls */}
+              {getTotalPages() > 1 && (
+                <div className="flex items-center justify-center space-x-2 mt-4">
+                  {/* Previous Page */}
+                  <button
+                    onClick={() => setCurrentUpgradePage(prev => Math.max(1, prev - 1))}
+                    disabled={currentUpgradePage === 1}
+                    className={`font-mono font-bold px-3 py-2 rounded-lg text-xs transition-all duration-300 border-2 ${
+                      currentUpgradePage === 1
+                        ? 'bg-gradient-to-r from-gray-600 to-gray-500 text-gray-400 cursor-not-allowed border-gray-400'
+                        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border-cyan-400 hover:scale-105'
+                    }`}
+                  >
+                    ◀ PREV
+                  </button>
+
+                  {/* Page Numbers */}
+                  <div className="flex items-center space-x-1">
+                    {(() => {
+                      const totalPages = getTotalPages();
+                      const currentPage = currentUpgradePage;
+                      const pagesToShow = 5;
+                      const startPage = Math.max(1, currentPage - Math.floor(pagesToShow / 2));
+                      const endPage = Math.min(totalPages, startPage + pagesToShow - 1);
+                      
+                      const pages = [];
+                      
+                      // First page
+                      if (startPage > 1) {
+                        pages.push(
+                          <button
+                            key={1}
+                            onClick={() => setCurrentUpgradePage(1)}
+                            className="font-mono font-bold px-2 py-1 rounded text-xs bg-gradient-to-r from-gray-700 to-gray-600 text-gray-300 border border-gray-500 hover:border-cyan-400 hover:text-cyan-300 transition-all duration-300"
+                          >
+                            1
+                          </button>
+                        );
+                        if (startPage > 2) {
+                          pages.push(
+                            <span key="ellipsis1" className="text-gray-500 font-mono text-xs px-1">
+                              ...
+                            </span>
+                          );
+                        }
                       }
                       
-                      const sessionData = localStorage.getItem(SESSION_KEY);
-                      if (sessionData) {
-                        const parsedSession = JSON.parse(sessionData);
-                        console.log('Parsed session data:', parsedSession);
+                      // Middle pages
+                      for (let i = startPage; i <= endPage; i++) {
+                        pages.push(
+                          <button
+                            key={i}
+                            onClick={() => setCurrentUpgradePage(i)}
+                            className={`font-mono font-bold px-2 py-1 rounded text-xs transition-all duration-300 border ${
+                              i === currentPage
+                                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white border-cyan-400 shadow-lg'
+                                : 'bg-gradient-to-r from-gray-700 to-gray-600 text-gray-300 border-gray-500 hover:border-cyan-400 hover:text-cyan-300'
+                            }`}
+                          >
+                            {i}
+                          </button>
+                        );
                       }
-                    } catch (error) {
-                      console.error('Error parsing saved data:', error);
-                    }
-                  }}
-                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🔍 INSPECT LS
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== MANUAL LOAD ATTEMPT ===');
-                    
-                    // Try to load from main save first
-                    const saved = localStorage.getItem(SAVE_KEY);
-                    if (saved) {
-                      try {
-                        const parsed = JSON.parse(saved);
-                        if (validateGameState(parsed)) {
-                          console.log('Manual load from main save successful:', parsed);
-                          // setGameState(prev => ({
-                          //   ...parsed,
-                          //   lastSaveTime: Date.now()
-                          // }));
-                          setSaveMessage('Manual load successful!');
-                          setTimeout(() => setSaveMessage(''), 3000);
-                          return;
+                      
+                      // Last page
+                      if (endPage < totalPages) {
+                        if (endPage < totalPages - 1) {
+                          pages.push(
+                            <span key="ellipsis2" className="text-gray-500 font-mono text-xs px-1">
+                              ...
+                            </span>
+                          );
                         }
-                      } catch (error) {
-                        console.error('Manual load from main save error:', error);
+                        pages.push(
+                          <button
+                            key={totalPages}
+                            onClick={() => setCurrentUpgradePage(totalPages)}
+                            className="font-mono font-bold px-2 py-1 rounded text-xs bg-gradient-to-r from-gray-700 to-gray-600 text-gray-300 border border-gray-500 hover:border-cyan-400 hover:text-cyan-300 transition-all duration-300"
+                          >
+                            {totalPages}
+                          </button>
+                        );
                       }
-                    }
-                    
-                    // Fallback: load divine points from separate key
-                    const savedPoints = localStorage.getItem(DIVINE_POINTS_KEY);
-                    if (savedPoints) {
-                      const points = parseInt(savedPoints, 10);
-                      if (!isNaN(points) && points >= 100) {
-                        console.log('Manual load from divine points key successful:', points);
-                        setGameState(prev => ({
-                          ...prev,
-                          divinePoints: points,
-                          lastSaveTime: Date.now()
-                        }));
-                        setSaveMessage(`Manual load successful! Points: ${points.toLocaleString()}`);
-                        setTimeout(() => setSaveMessage(''), 3000);
-                        return;
-                      }
-                    }
-                    
-                    // Fallback: load total earned from separate key
-                    const savedTotal = localStorage.getItem(TOTAL_EARNED_KEY);
-                    if (savedTotal) {
-                      const total = parseInt(savedTotal, 10);
-                      if (!isNaN(total) && total >= 0) {
-                        console.log('Manual load from total earned key successful:', total);
-                        setGameState(prev => ({
-                          ...prev,
-                          totalPointsEarned: total,
-                          lastSaveTime: Date.now()
-                        }));
-                        setSaveMessage(`Manual load successful! Total earned: ${total.toLocaleString()}`);
-                        setTimeout(() => setSaveMessage(''), 3000);
-                        return;
-                      }
-                    }
-                    
-                    console.log('No valid saved data to load');
-                    setSaveMessage('No valid saved data found');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📥 MANUAL LOAD
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== GAME STATE DUMP ===');
-                    console.log('Full Game State:', gameState);
-                    console.log('Upgrades:', upgrades);
-                    console.log('Achievements:', achievements);
-                    console.log('Tutorial State:', tutorialState);
-                    console.log('Active Boosts:', activeBoosts);
-                    setSaveMessage('Game state dumped to console');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-gray-600 hover:bg-gray-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📋 STATE DUMP
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="p-3 bg-red-900/30 border border-red-500/20 rounded">
-              <div className="text-red-200 font-mono font-bold text-xs mb-2">⚠️ QUICK ACTIONS:</div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                <button
-                  onClick={resetGame}
-                  className="text-xs bg-red-600 hover:bg-red-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🗑️ RESET GAME
-                </button>
-                <button
-                  onClick={prestige}
-                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  ⭐ PRESTIGE
-                </button>
-                <button
-                  onClick={() => {
-                    // Add 100,000 points for testing
-                    setGameState(prev => ({
-                      ...prev,
-                      divinePoints: prev.divinePoints + 100000,
-                      totalPointsEarned: prev.totalPointsEarned + 100000
-                    }));
-                    setSaveMessage('Added 100,000 points for testing');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-green-600 hover:bg-green-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  💰 ADD 100K POINTS
-                </button>
-                <button
-                  onClick={() => {
-                    // Add 1,000,000 points for testing
-                    setGameState(prev => ({
-                      ...prev,
-                      divinePoints: prev.divinePoints + 1000000,
-                      totalPointsEarned: prev.totalPointsEarned + 1000000
-                    }));
-                    setSaveMessage('Added 1,000,000 points for testing');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-yellow-600 hover:bg-yellow-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  💎 ADD 1M POINTS
-                </button>
-                <button
-                  onClick={() => {
-                    // Max out all upgrades for testing
-                    const maxedUpgrades = upgrades.map(upgrade => ({
-                      ...upgrade,
-                      level: 10 // Set all upgrades to level 10
-                    }));
-                    setUpgrades(maxedUpgrades);
-                    localStorage.setItem('divineMiningUpgrades', JSON.stringify(maxedUpgrades));
-                    setSaveMessage('All upgrades maxed to level 10 for testing');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  ⚡ MAX UPGRADES
-                </button>
-              </div>
-            </div>
-
-            {/* Performance Monitor */}
-            <div className="mt-4 p-3 bg-indigo-900/30 border border-indigo-500/20 rounded">
-              <div className="text-indigo-200 font-mono font-bold text-xs mb-2">📈 PERFORMANCE MONITOR:</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <button
-                  onClick={() => {
-                    console.log('=== PERFORMANCE METRICS ===');
-                    console.log('Memory Usage:', (performance as any).memory ? {
-                      used: Math.round((performance as any).memory.usedJSHeapSize / 1024 / 1024) + 'MB',
-                      total: Math.round((performance as any).memory.totalJSHeapSize / 1024 / 1024) + 'MB',
-                      limit: Math.round((performance as any).memory.jsHeapSizeLimit / 1024 / 1024) + 'MB'
-                    } : 'Not available');
-                    console.log('Navigation Timing:', performance.getEntriesByType('navigation')[0]);
-                    console.log('Game State Size:', JSON.stringify(gameState).length, 'bytes');
-                    console.log('Upgrades Size:', JSON.stringify(upgrades).length, 'bytes');
-                    setSaveMessage('Performance metrics logged to console');
-                    setTimeout(() => setSaveMessage(''), 3000);
-                  }}
-                  className="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  📊 PERFORMANCE
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== CLEAR CONSOLE ===');
-                    console.clear();
-                    setSaveMessage('Console cleared');
-                    setTimeout(() => setSaveMessage(''), 2000);
-                  }}
-                  className="text-xs bg-gray-600 hover:bg-gray-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🧹 CLEAR CONSOLE
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== RELOAD PAGE ===');
-                    window.location.reload();
-                  }}
-                  className="text-xs bg-orange-600 hover:bg-orange-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  🔄 RELOAD PAGE
-                </button>
-                <button
-                  onClick={() => {
-                    console.log('=== TOGGLE MINING ===');
-                    toggleMining();
-                    setSaveMessage(`Mining ${gameState.isMining ? 'stopped' : 'started'}`);
-                    setTimeout(() => setSaveMessage(''), 2000);
-                  }}
-                  className="text-xs bg-cyan-600 hover:bg-cyan-500 px-3 py-2 rounded transition-colors font-mono"
-                >
-                  ⚡ TOGGLE MINING
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        <div className="space-y-3">
-          {upgrades.map((upgrade) => (
-            <div key={upgrade.id} className={`bg-gray-800/50 border border-cyan-500/30 rounded-lg p-3 upgrade-${upgrade.id}`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-cyan-300 font-mono font-bold text-sm tracking-wide">{upgrade.name}</div>
-                  <div className="text-gray-400 font-mono text-xs">Level {upgrade.level} • {upgrade.effect}</div>
-                  <div className="text-gray-500 font-mono text-xs">Cost: {formatNumber(getUpgradeCost(upgrade))} DP</div>
-                </div>
-                <button 
-                  onClick={() => purchaseUpgrade(upgrade.id)}
-                  disabled={!canAffordUpgrade(upgrade)}
-                  className={`font-mono font-bold px-4 py-2 rounded text-xs transition-all duration-300 border game-button ${
-                    canAffordUpgrade(upgrade)
-                      ? 'upgrade-available hover:scale-105'
-                      : 'upgrade-unavailable cursor-not-allowed'
-                  }`}
-                >
-                  {canAffordUpgrade(upgrade) ? 'UPGRADE' : 'TOO EXPENSIVE'}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Achievements */}
-      {unlockedAchievements.length > 0 && (
-        <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] achievements-section">
-          {/* Futuristic Corner Accents */}
-          <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
-          <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
-          <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
-          <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
-          
-          <div className="mb-4">
-            <div className="flex items-center space-x-2 mb-3">
-              <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
-              <span className="text-yellow-400 font-mono font-bold tracking-wider">ACHIEVEMENTS ({unlockedAchievements.length}/{achievements.length})</span>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 gap-2">
-            {unlockedAchievements.map((achievement) => (
-              <div key={achievement.id} className="bg-yellow-900/30 border border-yellow-500/30 rounded-lg p-2">
-                <div className="text-yellow-300 font-mono font-bold text-sm">🏆 {achievement.name}</div>
-                <div className="text-yellow-400 font-mono text-xs">{achievement.description}</div>
-                {achievement.unlockedAt && (
-                  <div className="text-yellow-500 font-mono text-xs mt-1">
-                    Unlocked: {new Date(achievement.unlockedAt).toLocaleDateString()}
+                      
+                      return pages;
+                    })()}
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* Statistics */}
-      <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 shadow-[0_0_30px_rgba(0,255,255,0.1)] statistics-section">
-        {/* Futuristic Corner Accents */}
-        <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400"></div>
-        <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400"></div>
-        <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400"></div>
-        <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400"></div>
-        
-        <div className="mb-4">
-          <div className="flex items-center space-x-2 mb-3">
-            <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-            <span className="text-cyan-400 font-mono font-bold tracking-wider">STATISTICS</span>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-2 gap-3 game-grid-2">
-          <div className="text-center stats-card">
-            <div className="text-cyan-300 font-mono font-bold text-lg">{formatNumber(gameState.totalEarned24h)}</div>
-            <div className="text-gray-400 font-mono text-xs">24h Total</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-cyan-300 font-mono font-bold text-lg">{formatNumber(gameState.totalEarned7d)}</div>
-            <div className="text-gray-400 font-mono text-xs">7d Total</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-cyan-300 font-mono font-bold text-lg">{gameState.upgradesPurchased}</div>
-            <div className="text-gray-400 font-mono text-xs">Upgrades</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-cyan-300 font-mono font-bold text-lg">{gameState.minersActive}</div>
-            <div className="text-gray-400 font-mono text-xs">Miners Active</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-green-300 font-mono font-bold text-lg">{formatNumber(gameState.highScore)}</div>
-            <div className="text-gray-400 font-mono text-xs">Session High</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-yellow-300 font-mono font-bold text-lg">{formatNumber(gameState.allTimeHighScore)}</div>
-            <div className="text-gray-400 font-mono text-xs">All-Time High</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-purple-300 font-mono font-bold text-lg">+{(gameState.offlineEfficiencyBonus * 100).toFixed(1)}%</div>
-            <div className="text-gray-400 font-mono text-xs">Offline Bonus</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-green-300 font-mono font-bold text-lg">{formatNumber(getEnhancedMiningRate())}</div>
-            <div className="text-gray-400 font-mono text-xs">Enhanced Rate</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-blue-300 font-mono font-bold text-lg">{formatNumber(gameState.totalPointsEarned)}</div>
-            <div className="text-gray-400 font-mono text-xs">Total Earned</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-purple-300 font-mono font-bold text-lg">{getSessionDuration()}</div>
-            <div className="text-gray-400 font-mono text-xs">Session Time</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-orange-300 font-mono font-bold text-lg">{gameState.lastDailyReset}</div>
-            <div className="text-gray-400 font-mono text-xs">Daily Reset</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-purple-300 font-mono font-bold text-lg">{formatNumber(gameState.unclaimedOfflineRewards)}</div>
-            <div className="text-gray-400 font-mono text-xs">Unclaimed Rewards</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-green-300 font-mono font-bold text-lg">{formatNumber(gameState.maxEnergy)}</div>
-            <div className="text-gray-400 font-mono text-xs">Max Energy</div>
-          </div>
-          <div className="text-center stats-card">
-            <div className="text-blue-300 font-mono font-bold text-lg">+{(0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0)).toFixed(1)}/s</div>
-            <div className="text-gray-400 font-mono text-xs">Energy Regen</div>
+                  {/* Next Page */}
+                  <button
+                    onClick={() => setCurrentUpgradePage(prev => Math.min(getTotalPages(), prev + 1))}
+                    disabled={currentUpgradePage === getTotalPages()}
+                    className={`font-mono font-bold px-3 py-2 rounded-lg text-xs transition-all duration-300 border-2 ${
+                      currentUpgradePage === getTotalPages()
+                        ? 'bg-gradient-to-r from-gray-600 to-gray-500 text-gray-400 cursor-not-allowed border-gray-400'
+                        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white border-cyan-400 hover:scale-105'
+                    }`}
+                  >
+                    NEXT ▶
+                  </button>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {getPaginatedUpgrades().length === 0 && (
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-4">🔍</div>
+                  <div className="text-gray-400 font-mono font-bold text-lg mb-2">No Upgrades Found</div>
+                  <div className="text-gray-500 font-mono text-sm">
+                    Try changing your filter or check back later for new upgrades!
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Tutorial Overlay */}
       <TutorialOverlay />
     </div>
   );

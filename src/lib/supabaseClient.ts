@@ -1198,3 +1198,315 @@ export const miningSystem = {
     return Math.floor(amount * dailyRate * daysElapsed);
   }
 };
+
+export const getDivinePointsLeaderboard = async (limit: number = 100) => {
+  try {
+    console.log('Fetching divine points leaderboard...');
+    const { data, error } = await supabase
+      .from('user_game_data')
+      .select(`
+        user_id,
+        game_data,
+        last_updated,
+        users (
+          id,
+          telegram_id,
+          username,
+          first_name,
+          last_name,
+          created_at,
+          last_active
+        )
+      `)
+      .not('game_data->divine_points', 'is', null)
+      .order('game_data->divine_points', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    console.log('Raw database response:', data);
+    console.log('First entry users:', data?.[0]?.users);
+
+    const mappedData = data?.map((entry, index) => {
+      // Handle different possible user data structures
+      const userData = Array.isArray(entry.users) ? entry.users[0] : entry.users;
+      
+      // Generate a better username fallback
+      let username = userData?.username;
+      if (!username || username.trim() === '') {
+        // Try to use first name + last name
+        if (userData?.first_name && userData?.last_name) {
+          username = `${userData.first_name} ${userData.last_name}`;
+        } else if (userData?.first_name) {
+          username = userData.first_name;
+        } else if (userData?.last_name) {
+          username = userData.last_name;
+        } else {
+          // Generate a cool mining-themed username
+          const miningNames = [
+            'DivineMiner', 'CosmicHarvester', 'QuantumDigger', 'CrystalSeeker', 
+            'MysticProspector', 'EtherealMiner', 'AstralDigger', 'CelestialHarvester',
+            'SpiritualMiner', 'TranscendentDigger', 'EnlightenedProspector', 'SacredMiner'
+          ];
+          const randomIndex = (userData?.telegram_id || entry.user_id) % miningNames.length;
+          const suffix = userData?.telegram_id ? String(userData.telegram_id).slice(-3) : String(entry.user_id).slice(-3);
+          username = `${miningNames[randomIndex]}_${suffix}`;
+        }
+      }
+      
+      return {
+        rank: index + 1,
+        userId: entry.user_id,
+        telegramId: userData?.telegram_id || 0,
+        username: username,
+        firstName: userData?.first_name,
+        lastName: userData?.last_name,
+        divinePoints: Number(entry.game_data?.divine_points) || 0,
+        totalPointsEarned: Number(entry.game_data?.total_points_earned) || 0,
+        pointsPerSecond: Number(entry.game_data?.points_per_second) || 0,
+        highScore: Number(entry.game_data?.high_score) || 0,
+        allTimeHighScore: Number(entry.game_data?.all_time_high_score) || 0,
+        upgradesPurchased: Number(entry.game_data?.upgrades_purchased) || 0,
+        lastActive: userData?.last_active || new Date().toISOString(),
+        joinedAt: userData?.created_at || new Date().toISOString(),
+        lastUpdated: entry.last_updated
+      };
+    }) || [];
+    
+    console.log('Mapped leaderboard data:', mappedData);
+    
+    return mappedData;
+  } catch (error) {
+    console.error('Error fetching divine points leaderboard:', error);
+    return [];
+  }
+};
+
+export const getDivinePointsLeaderboardByPeriod = async (
+  period: 'daily' | 'weekly' | 'monthly' | 'all_time' = 'all_time',
+  limit: number = 100
+) => {
+  try {
+    let query = supabase
+      .from('user_game_data')
+      .select(`
+        user_id,
+        game_data,
+        last_updated,
+        users (
+          id,
+          telegram_id,
+          username,
+          first_name,
+          last_name,
+          created_at,
+          last_active
+        )
+      `)
+      .not('game_data->divine_points', 'is', null);
+
+    // Add time filter based on period
+    const now = new Date();
+    switch (period) {
+      case 'daily':
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        query = query.gte('last_updated', yesterday.toISOString());
+        break;
+      case 'weekly':
+        const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        query = query.gte('last_updated', lastWeek.toISOString());
+        break;
+      case 'monthly':
+        const lastMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        query = query.gte('last_updated', lastMonth.toISOString());
+        break;
+      // 'all_time' doesn't need additional filtering
+    }
+
+    const { data, error } = await query
+      .order('game_data->divine_points', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    return data?.map((entry, index) => {
+      // Handle different possible user data structures
+      const userData = Array.isArray(entry.users) ? entry.users[0] : entry.users;
+      
+      // Generate a better username fallback
+      let username = userData?.username;
+      if (!username || username.trim() === '') {
+        // Try to use first name + last name
+        if (userData?.first_name && userData?.last_name) {
+          username = `${userData.first_name} ${userData.last_name}`;
+        } else if (userData?.first_name) {
+          username = userData.first_name;
+        } else if (userData?.last_name) {
+          username = userData.last_name;
+        } else {
+          // Generate a cool mining-themed username
+          const miningNames = [
+            'DivineMiner', 'CosmicHarvester', 'QuantumDigger', 'CrystalSeeker', 
+            'MysticProspector', 'EtherealMiner', 'AstralDigger', 'CelestialHarvester',
+            'SpiritualMiner', 'TranscendentDigger', 'EnlightenedProspector', 'SacredMiner'
+          ];
+          const randomIndex = (userData?.telegram_id || entry.user_id) % miningNames.length;
+          const suffix = userData?.telegram_id ? String(userData.telegram_id).slice(-3) : String(entry.user_id).slice(-3);
+          username = `${miningNames[randomIndex]}_${suffix}`;
+        }
+      }
+      
+      return {
+        rank: index + 1,
+        userId: entry.user_id,
+        telegramId: userData?.telegram_id || 0,
+        username: username,
+        firstName: userData?.first_name,
+        lastName: userData?.last_name,
+        divinePoints: Number(entry.game_data?.divine_points) || 0,
+        totalPointsEarned: Number(entry.game_data?.total_points_earned) || 0,
+        pointsPerSecond: Number(entry.game_data?.points_per_second) || 0,
+        highScore: Number(entry.game_data?.high_score) || 0,
+        allTimeHighScore: Number(entry.game_data?.all_time_high_score) || 0,
+        upgradesPurchased: Number(entry.game_data?.upgrades_purchased) || 0,
+        lastActive: userData?.last_active || new Date().toISOString(),
+        joinedAt: userData?.created_at || new Date().toISOString(),
+        lastUpdated: entry.last_updated,
+        period
+      };
+    }) || [];
+  } catch (error) {
+    console.error('Error fetching divine points leaderboard by period:', error);
+    return [];
+  }
+};
+
+export const getUserDivinePointsRank = async (userId: number) => {
+  try {
+    // First get the user's divine points
+    const { data: userData, error: userError } = await supabase
+      .from('user_game_data')
+      .select('game_data->divine_points')
+      .eq('user_id', userId)
+      .single();
+
+    if (userError || !userData) {
+      return null;
+    }
+
+    const userDivinePoints = userData.divine_points || 0;
+
+    // Count how many users have more divine points
+    const { count, error: countError } = await supabase
+      .from('user_game_data')
+      .select('*', { count: 'exact', head: true })
+      .gt('game_data->divine_points', userDivinePoints);
+
+    if (countError) throw countError;
+
+    return (count || 0) + 1; // Rank is count + 1
+  } catch (error) {
+    console.error('Error getting user divine points rank:', error);
+    return null;
+  }
+};
+
+// Function to update generic usernames to better ones
+export const updateGenericUsernames = async () => {
+  try {
+    // Get all users with generic usernames
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('id, telegram_id, username, first_name, last_name')
+      .or('username.like.user_%,username.like.User%');
+
+    if (error) throw error;
+
+    if (!users || users.length === 0) {
+      console.log('No generic usernames found to update');
+      return;
+    }
+
+    console.log(`Found ${users.length} users with generic usernames`);
+
+    // Update each user with a better username
+    for (const user of users) {
+      let newUsername = user.username;
+
+      // Try to use first name + last name
+      if (user.first_name && user.last_name) {
+        newUsername = `${user.first_name} ${user.last_name}`;
+      } else if (user.first_name) {
+        newUsername = user.first_name;
+      } else if (user.last_name) {
+        newUsername = user.last_name;
+      } else {
+        // Generate a cool mining-themed username
+        const miningNames = [
+          'DivineMiner', 'CosmicHarvester', 'QuantumDigger', 'CrystalSeeker', 
+          'MysticProspector', 'EtherealMiner', 'AstralDigger', 'CelestialHarvester',
+          'SpiritualMiner', 'TranscendentDigger', 'EnlightenedProspector', 'SacredMiner'
+        ];
+        const randomIndex = user.telegram_id % miningNames.length;
+        const suffix = String(user.telegram_id).slice(-3);
+        newUsername = `${miningNames[randomIndex]}_${suffix}`;
+      }
+
+      // Update the user's username
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ username: newUsername })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error(`Failed to update username for user ${user.id}:`, updateError);
+      } else {
+        console.log(`Updated user ${user.id} username from "${user.username}" to "${newUsername}"`);
+      }
+    }
+
+    console.log('Username update process completed');
+  } catch (error) {
+    console.error('Error updating generic usernames:', error);
+  }
+};
+
+export const getDivinePointsStats = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('user_game_data')
+      .select('game_data->divine_points, game_data->total_points_earned');
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return {
+        totalPlayers: 0,
+        totalDivinePoints: 0,
+        averageDivinePoints: 0,
+        maxDivinePoints: 0,
+        totalPointsEarned: 0
+      };
+    }
+
+    const divinePoints = data.map(entry => Number(entry.divine_points) || 0);
+    const totalPointsEarned = data.map(entry => Number(entry.total_points_earned) || 0);
+
+    return {
+      totalPlayers: data.length,
+      totalDivinePoints: divinePoints.reduce((sum, points) => sum + points, 0),
+      averageDivinePoints: divinePoints.reduce((sum, points) => sum + points, 0) / data.length,
+      maxDivinePoints: Math.max(...divinePoints),
+      totalPointsEarned: totalPointsEarned.reduce((sum, points) => sum + points, 0)
+    };
+  } catch (error) {
+    console.error('Error getting divine points stats:', error);
+    return {
+      totalPlayers: 0,
+      totalDivinePoints: 0,
+      averageDivinePoints: 0,
+      maxDivinePoints: 0,
+      totalPointsEarned: 0
+    };
+  }
+};

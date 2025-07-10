@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GiCoins, GiGems, GiCrown, GiShield } from 'react-icons/gi';
 import { useGameContext } from '@/contexts/GameContext';
 import { useNotificationSystem } from './NotificationSystem';
+import { useAuth } from '@/hooks/useAuth';
 import './DailyRewards.css';
 
 interface DailyStreak {
@@ -159,9 +160,18 @@ const STREAK_MILESTONES = [7, 14, 30, 60, 100, 365];
 export const DailyRewards: React.FC = () => {
   const { points: userPoints, gems: userGems, addPoints, addGems, addBoost } = useGameContext();
   const { showAchievementNotification, showMilestoneNotification } = useNotificationSystem();
+  const { user } = useAuth();
+  
+  // Helper function to get user-specific localStorage keys
+  const getUserSpecificKey = (baseKey: string, userId?: string) => {
+    if (!userId) return baseKey; // Fallback for non-authenticated users
+    return `${baseKey}_${userId}`;
+  };
   
   const [dailyStreak, setDailyStreak] = useState<DailyStreak>(() => {
-    const saved = localStorage.getItem('divineMiningStreak');
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userStreakKey = getUserSpecificKey('divineMiningStreak', userId);
+    const saved = localStorage.getItem(userStreakKey);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -181,7 +191,7 @@ export const DailyRewards: React.FC = () => {
           specialRewards: parsed.specialRewards || []
         };
       } catch (error) {
-        console.error('Error parsing saved streak data:', error);
+        console.error('Error parsing saved streak data for user:', userId, error);
       }
     }
     return {
@@ -253,13 +263,17 @@ export const DailyRewards: React.FC = () => {
 
   // Load and save streak data
   useEffect(() => {
-    const savedStreak = localStorage.getItem('divineMiningStreak');
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userStreakKey = getUserSpecificKey('divineMiningStreak', userId);
+    const savedStreak = localStorage.getItem(userStreakKey);
     if (savedStreak) setDailyStreak(JSON.parse(savedStreak));
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
-    localStorage.setItem('divineMiningStreak', JSON.stringify(dailyStreak));
-  }, [dailyStreak]);
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userStreakKey = getUserSpecificKey('divineMiningStreak', userId);
+    localStorage.setItem(userStreakKey, JSON.stringify(dailyStreak));
+  }, [dailyStreak, user?.id]);
 
 
 

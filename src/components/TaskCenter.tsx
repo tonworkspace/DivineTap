@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GiCoins, GiLightningArc, GiUpgrade } from 'react-icons/gi';
 import { useGameContext } from '@/contexts/GameContext';
+import { useAuth } from '@/hooks/useAuth';
 import './TaskCenter.css';
 
 interface Task {
@@ -21,35 +22,51 @@ interface TaskProgress {
 
 export const TaskCenter: React.FC = () => {
   const { addGems } = useGameContext();
-  const [taskProgress, setTaskProgress] = useState<TaskProgress>({});
+  const { user } = useAuth();
+  
+  // Helper function to get user-specific localStorage keys
+  const getUserSpecificKey = (baseKey: string, userId?: string) => {
+    if (!userId) return baseKey; // Fallback for non-authenticated users
+    return `${baseKey}_${userId}`;
+  };
+  
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
+  const [taskProgress, setTaskProgress] = useState<TaskProgress>({});
   const [showRewardModal, setShowRewardModal] = useState(false);
   const [rewardMessage, setRewardMessage] = useState('');
 
   // Load completed tasks from localStorage
   useEffect(() => {
-    const savedCompletedTasks = localStorage.getItem('divineMiningCompletedTasks');
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userCompletedTasksKey = getUserSpecificKey('divineMiningCompletedTasks', userId);
+    const savedCompletedTasks = localStorage.getItem(userCompletedTasksKey);
     if (savedCompletedTasks) {
       try {
         setCompletedTasks(JSON.parse(savedCompletedTasks));
       } catch (error) {
-        console.error('Error parsing completed tasks:', error);
+        console.error('Error parsing completed tasks for user:', userId, error);
       }
     }
-  }, []);
+  }, [user?.id]);
 
   // Save completed tasks to localStorage
   useEffect(() => {
-    localStorage.setItem('divineMiningCompletedTasks', JSON.stringify(completedTasks));
-  }, [completedTasks]);
+    const userId = user?.id ? user.id.toString() : undefined;
+    const userCompletedTasksKey = getUserSpecificKey('divineMiningCompletedTasks', userId);
+    localStorage.setItem(userCompletedTasksKey, JSON.stringify(completedTasks));
+  }, [completedTasks, user?.id]);
 
   // Calculate task progress
   useEffect(() => {
     const calculateProgress = () => {
-      const savedPoints = localStorage.getItem('divineMiningPoints');
+      const userId = user?.id ? user.id.toString() : undefined;
+      const userPointsKey = getUserSpecificKey('divineMiningPoints', userId);
+      const userUpgradesKey = getUserSpecificKey('divineMiningUpgrades', userId);
+      
+      const savedPoints = localStorage.getItem(userPointsKey);
       const currentPoints = savedPoints ? parseInt(savedPoints, 10) : 0;
       
-      const savedUpgrades = localStorage.getItem('divineMiningUpgrades');
+      const savedUpgrades = localStorage.getItem(userUpgradesKey);
       let totalUpgrades = 0;
       if (savedUpgrades) {
         try {
@@ -80,7 +97,7 @@ export const TaskCenter: React.FC = () => {
     const interval = setInterval(calculateProgress, 5000); // Update every 5 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.id]);
 
   // Task definitions
   const tasks: Task[] = [
