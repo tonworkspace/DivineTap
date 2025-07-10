@@ -1453,15 +1453,30 @@ export const DivineMiningGame: React.FC = () => {
         id: 'energy-efficiency',
         name: 'ENERGY EFFICIENCY',
         level: 0,
-        maxLevel: 10,
-        effect: '-10% energy cost',
+        maxLevel: 15, // Increased from 10
+        effect: '-12% energy cost',
         baseCost: 1000,
-        costMultiplier: 1.30,
-        effectValue: -0.1,
+        costMultiplier: 1.25, // Reduced from 1.30 for better scaling
+        effectValue: -0.12, // Increased from -0.1
         category: 'mid',
         unlockRequirement: {
           type: 'points',
           value: 2000
+        }
+      },
+      {
+        id: 'energy-optimization',
+        name: 'ENERGY OPTIMIZATION',
+        level: 0,
+        maxLevel: 12,
+        effect: '-8% energy cost',
+        baseCost: 800,
+        costMultiplier: 1.20,
+        effectValue: -0.08,
+        category: 'mid',
+        unlockRequirement: {
+          type: 'points',
+          value: 1500
         }
       },
       {
@@ -1515,15 +1530,30 @@ export const DivineMiningGame: React.FC = () => {
         id: 'energy-regen',
         name: 'ENERGY REGEN',
         level: 0,
-        maxLevel: 15,
-        effect: '+0.5 energy/sec',
+        maxLevel: 25, // Increased from 15
+        effect: '+0.8 energy/sec',
         baseCost: 5000,
-        costMultiplier: 1.40,
-        effectValue: 0.5,
+        costMultiplier: 1.35, // Reduced from 1.40 for better scaling
+        effectValue: 0.8, // Increased from 0.5
         category: 'late',
         unlockRequirement: {
           type: 'points',
           value: 15000
+        }
+      },
+      {
+        id: 'energy-flow',
+        name: 'ENERGY FLOW',
+        level: 0,
+        maxLevel: 20,
+        effect: '+1.2 energy/sec',
+        baseCost: 15000,
+        costMultiplier: 1.40,
+        effectValue: 1.2,
+        category: 'late',
+        unlockRequirement: {
+          type: 'points',
+          value: 25000
         }
       },
       {
@@ -1607,15 +1637,30 @@ export const DivineMiningGame: React.FC = () => {
         id: 'energy-burst',
         name: 'ENERGY BURST',
         level: 0,
-        maxLevel: 10,
-        effect: '+1.0 energy/sec',
+        maxLevel: 15, // Increased from 10
+        effect: '+1.5 energy/sec',
         baseCost: 300000,
-        costMultiplier: 1.70,
-        effectValue: 1.0,
+        costMultiplier: 1.60, // Reduced from 1.70 for better scaling
+        effectValue: 1.5, // Increased from 1.0
         category: 'endgame',
         unlockRequirement: {
           type: 'points',
           value: 300000
+        }
+      },
+      {
+        id: 'energy-surge',
+        name: 'ENERGY SURGE',
+        level: 0,
+        maxLevel: 12,
+        effect: '+2.0 energy/sec',
+        baseCost: 500000,
+        costMultiplier: 1.65,
+        effectValue: 2.0,
+        category: 'endgame',
+        unlockRequirement: {
+          type: 'points',
+          value: 500000
         }
       },
       
@@ -1678,6 +1723,21 @@ export const DivineMiningGame: React.FC = () => {
         unlockRequirement: {
           type: 'points',
           value: 10000000
+        }
+      },
+      {
+        id: 'divine-energy',
+        name: 'DIVINE ENERGY',
+        level: 0,
+        maxLevel: 5,
+        effect: '+5.0 energy/sec',
+        baseCost: 3000000,
+        costMultiplier: 1.90,
+        effectValue: 5.0,
+        category: 'legendary',
+        unlockRequirement: {
+          type: 'points',
+          value: 3000000
         }
       }
     ];
@@ -2290,21 +2350,28 @@ export const DivineMiningGame: React.FC = () => {
   }, []);
 
   const getUpgradeCost = useCallback((upgrade: Upgrade): number => {
-    // Regulated cost calculation with diminishing returns
+    // Enhanced cost calculation with better diminishing returns
     const baseCost = upgrade.baseCost;
     const multiplier = upgrade.costMultiplier;
     const level = upgrade.level;
     
-    // Apply diminishing returns after level 10
+    // Apply diminishing returns after level 5 for better early game progression
     let adjustedMultiplier = multiplier;
-    if (level >= 10) {
-      const overLevel = level - 9; // Levels beyond 10
-      const diminishingFactor = Math.max(0.8, 1 - (overLevel * 0.02)); // Reduce multiplier by 2% per level after 10
+    if (level >= 5) {
+      const overLevel = level - 4; // Levels beyond 5
+      const diminishingFactor = Math.max(0.7, 1 - (overLevel * 0.03)); // Reduce multiplier by 3% per level after 5
       adjustedMultiplier = multiplier * diminishingFactor;
     }
     
+    // Additional diminishing returns after level 15
+    if (level >= 15) {
+      const overLevel = level - 14; // Levels beyond 15
+      const additionalDiminishing = Math.max(0.5, 1 - (overLevel * 0.05)); // Reduce by 5% per level after 15
+      adjustedMultiplier = adjustedMultiplier * additionalDiminishing;
+    }
+    
     // Cap the maximum cost to prevent exponential explosion
-    const maxCost = baseCost * 1000; // Maximum 1000x base cost
+    const maxCost = baseCost * 500; // Reduced from 1000x to 500x for better affordability
     const calculatedCost = Math.floor(baseCost * Math.pow(adjustedMultiplier, level));
     
     return Math.min(calculatedCost, maxCost);
@@ -2838,12 +2905,14 @@ export const DivineMiningGame: React.FC = () => {
         // Check if we have enough energy to continue mining
         const boostedRate = getEnhancedMiningRate();
         const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+        const energyOptimizationUpgrades = upgrades.filter(u => u.id === 'energy-optimization');
         const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
         const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
         const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const optimizationBonus = energyOptimizationUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
         const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
         const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-        const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+        const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + optimizationBonus + sustainBonus + masteryBonus);
         
         const baseEnergyCost = 0.8;
         const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / prev.pointsPerSecond));
@@ -2907,10 +2976,17 @@ export const DivineMiningGame: React.FC = () => {
       setGameState(prev => {
         const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
         const energyBurstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
+        const energyFlowUpgrades = upgrades.filter(u => u.id === 'energy-flow');
+        const energySurgeUpgrades = upgrades.filter(u => u.id === 'energy-surge');
+        
         const regenBonus = energyRegenUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
         const burstBonus = energyBurstUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-        const baseRegen = 0.3;
-        const totalRegen = baseRegen + regenBonus + burstBonus;
+        const flowBonus = energyFlowUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        const surgeBonus = energySurgeUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+        
+        // Increased base regeneration rate for faster recovery
+        const baseRegen = 1.0; // Increased from 0.3
+        const totalRegen = baseRegen + regenBonus + burstBonus + flowBonus + surgeBonus;
         
         const newEnergy = Math.min(prev.maxEnergy, prev.currentEnergy + totalRegen);
         
@@ -2920,7 +2996,7 @@ export const DivineMiningGame: React.FC = () => {
           lastEnergyRegen: Date.now()
         };
       });
-    }, 1000); // Regenerate energy every second
+    }, 500); // Regenerate energy every 500ms (increased frequency from 1000ms)
 
     return () => clearInterval(energyRegenInterval);
   }, [gameState.currentEnergy, gameState.maxEnergy, upgrades]);
@@ -2937,12 +3013,14 @@ export const DivineMiningGame: React.FC = () => {
     // Check if we have enough energy to start auto-mining
     const boostedRate = getEnhancedMiningRate();
     const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+    const energyOptimizationUpgrades = upgrades.filter(u => u.id === 'energy-optimization');
     const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
     const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
     const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+    const optimizationBonus = energyOptimizationUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
     const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
     const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-    const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+    const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + optimizationBonus + sustainBonus + masteryBonus);
     
     const baseEnergyCost = 0.8;
     const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
@@ -3937,7 +4015,7 @@ export const DivineMiningGame: React.FC = () => {
               <div className="text-center mt-2">
                 {gameState.currentEnergy < gameState.maxEnergy && (
                   <div className="text-xs text-blue-400 font-mono animate-pulse">
-                    +{(0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0)).toFixed(1)}/sec
+                    +{(1.0 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-flow').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-surge').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'divine-energy').reduce((sum, u) => sum + (u.effectValue * u.level), 0)).toFixed(1)}/sec
                   </div>
                 )}
                 {gameState.isMining && (
@@ -3973,12 +4051,14 @@ export const DivineMiningGame: React.FC = () => {
               {/* Efficiency */}
               {(() => {
                 const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                const energyOptimizationUpgrades = upgrades.filter(u => u.id === 'energy-optimization');
                 const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
                 const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
                 const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const optimizationBonus = energyOptimizationUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
                 const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
                 const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+                const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + optimizationBonus + sustainBonus + masteryBonus);
                 
                 return (
                   <div className="text-center">
@@ -4029,19 +4109,21 @@ export const DivineMiningGame: React.FC = () => {
               if (!gameState.isMining) {
                 const boostedRate = getEnhancedMiningRate();
                 const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+                const energyOptimizationUpgrades = upgrades.filter(u => u.id === 'energy-optimization');
                 const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
                 const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
                 const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const optimizationBonus = energyOptimizationUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
                 const sustainBonus = energySustainUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
                 const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => sum + (u.effectValue * u.level), 0);
-                const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
+                const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + optimizationBonus + sustainBonus + masteryBonus);
                 
                 const baseEnergyCost = 0.8;
                 const miningSpeedMultiplier = Math.min(2.0, Math.max(0.5, boostedRate / gameState.pointsPerSecond));
                 const energyCost = Math.max(0.1, baseEnergyCost * miningSpeedMultiplier * (1 + totalEfficiencyBonus));
                 const minimumEnergyRequired = energyCost * 2 * 5;
                 
-                const energyRegen = 0.3 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0);
+                const energyRegen = 1.0 + upgrades.filter(u => u.id === 'energy-regen').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-burst').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-flow').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'energy-surge').reduce((sum, u) => sum + (u.effectValue * u.level), 0) + upgrades.filter(u => u.id === 'divine-energy').reduce((sum, u) => sum + (u.effectValue * u.level), 0);
                 const energyNeeded = minimumEnergyRequired - gameState.currentEnergy;
                 const timeToRestart = energyNeeded / energyRegen;
                 
@@ -4117,7 +4199,7 @@ export const DivineMiningGame: React.FC = () => {
                     <div className="text-green-400 font-semibold">Mining System:</div>
                     <div>• Mining consumes energy at a rate based on your mining speed</div>
                     <div>• Higher mining rates consume more energy per second</div>
-                    <div>• Energy regenerates at 0.3/s base rate (can be upgraded)</div>
+                    <div>• Energy regenerates at 1.0/s base rate (can be upgraded)</div>
                     <div>• Mining stops automatically when energy reaches zero</div>
                     
                     <div className="text-green-400 font-semibold mt-2">Energy Management:</div>
@@ -4138,14 +4220,18 @@ export const DivineMiningGame: React.FC = () => {
                     <div>• Higher levels cost exponentially more points</div>
                     
                     <div className="text-blue-400 font-semibold mt-2">Energy Efficiency Upgrades:</div>
-                    <div>• Energy Efficiency: Reduces energy consumption by 10% per level</div>
-                    <div>• Energy Sustain: Additional 20% cost reduction per level</div>
-                    <div>• Energy Mastery: Massive 30% cost reduction per level</div>
+                    <div>• Energy Optimization: Reduces energy consumption by 8% per level</div>
+                    <div>• Energy Efficiency: Reduces energy consumption by 12% per level</div>
+                    <div>• Energy Sustain: Additional 15% cost reduction per level</div>
+                    <div>• Energy Mastery: Massive 25% cost reduction per level</div>
                     <div>• Maximum efficiency reduction is capped at 95%</div>
                     
                     <div className="text-blue-400 font-semibold mt-2">Energy Regeneration Upgrades:</div>
-                    <div>• Energy Regen: Increases regeneration rate by 0.1/s per level</div>
-                    <div>• Energy Burst: Dramatic regeneration boost of 0.5/s per level</div>
+                    <div>• Energy Regen: Increases regeneration rate by 0.8/s per level</div>
+                    <div>• Energy Flow: Increases regeneration rate by 1.2/s per level</div>
+                    <div>• Energy Burst: Dramatic regeneration boost of 1.5/s per level</div>
+                    <div>• Energy Surge: Massive regeneration boost of 2.0/s per level</div>
+                    <div>• Divine Energy: Legendary regeneration boost of 5.0/s per level</div>
                     <div>• Energy Overflow: Increases maximum energy capacity</div>
                     
                     <div className="text-blue-400 font-semibold mt-2">Advanced Upgrades:</div>
