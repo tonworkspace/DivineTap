@@ -433,7 +433,8 @@ export const IndexPage: FC = () => {
                 <div className="text-center">
                   <div className="text-purple-300 font-mono font-bold">
                     {(() => {
-                      const savedGems = localStorage.getItem('divineMiningGems');
+                      const userGemsKey = user?.id ? `divineMiningGems_${user.id}` : 'divineMiningGems';
+                      const savedGems = localStorage.getItem(userGemsKey);
                       return savedGems ? parseInt(savedGems, 10).toString() : '0';
                     })()}
                   </div>
@@ -443,7 +444,8 @@ export const IndexPage: FC = () => {
                 <div className="text-center">
                   <div className="text-green-300 font-mono font-bold">
                     {(() => {
-                      const savedHighScore = localStorage.getItem('divineMiningHighScore');
+                      const userHighScoreKey = user?.id ? `divineMiningHighScore_${user.id}` : 'divineMiningHighScore';
+                      const savedHighScore = localStorage.getItem(userHighScoreKey);
                       return savedHighScore ? parseInt(savedHighScore, 10).toLocaleString() : '0';
                     })()}
                   </div>

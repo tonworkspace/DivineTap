@@ -1202,6 +1202,8 @@ export const miningSystem = {
 export const getDivinePointsLeaderboard = async (limit: number = 100) => {
   try {
     console.log('Fetching divine points leaderboard...');
+    console.log('Using limit:', limit);
+    
     const { data, error } = await supabase
       .from('user_game_data')
       .select(`
@@ -1218,13 +1220,18 @@ export const getDivinePointsLeaderboard = async (limit: number = 100) => {
           last_active
         )
       `)
-      .not('game_data->divine_points', 'is', null)
-      .order('game_data->divine_points', { ascending: false })
+      // Removed the .not('game_data->divine_points', 'is', null) filter
+      .order('game_data->divinePoints', { ascending: false })
       .limit(limit);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error:', error);
+      throw error;
+    }
 
     console.log('Raw database response:', data);
+    console.log('Raw database response length:', data?.length);
+    console.log('First entry:', data?.[0]);
     console.log('First entry users:', data?.[0]?.users);
 
     const mappedData = data?.map((entry, index) => {
@@ -1254,26 +1261,30 @@ export const getDivinePointsLeaderboard = async (limit: number = 100) => {
         }
       }
       
-      return {
+      const mappedEntry = {
         rank: index + 1,
         userId: entry.user_id,
         telegramId: userData?.telegram_id || 0,
         username: username,
         firstName: userData?.first_name,
         lastName: userData?.last_name,
-        divinePoints: Number(entry.game_data?.divine_points) || 0,
-        totalPointsEarned: Number(entry.game_data?.total_points_earned) || 0,
-        pointsPerSecond: Number(entry.game_data?.points_per_second) || 0,
-        highScore: Number(entry.game_data?.high_score) || 0,
-        allTimeHighScore: Number(entry.game_data?.all_time_high_score) || 0,
-        upgradesPurchased: Number(entry.game_data?.upgrades_purchased) || 0,
+        divinePoints: Number(entry.game_data?.divinePoints) || 0,
+        totalPointsEarned: Number(entry.game_data?.totalPointsEarned) || 0,
+        pointsPerSecond: Number(entry.game_data?.pointsPerSecond) || 0,
+        highScore: Number(entry.game_data?.highScore) || 0,
+        allTimeHighScore: Number(entry.game_data?.allTimeHighScore) || 0,
+        upgradesPurchased: Number(entry.game_data?.upgradesPurchased) || 0,
         lastActive: userData?.last_active || new Date().toISOString(),
         joinedAt: userData?.created_at || new Date().toISOString(),
         lastUpdated: entry.last_updated
       };
+      
+      console.log(`Mapped entry ${index + 1}:`, mappedEntry);
+      return mappedEntry;
     }) || [];
     
-    console.log('Mapped leaderboard data:', mappedData);
+    console.log('Final mapped leaderboard data:', mappedData);
+    console.log('Final mapped data length:', mappedData.length);
     
     return mappedData;
   } catch (error) {
@@ -1303,7 +1314,7 @@ export const getDivinePointsLeaderboardByPeriod = async (
           last_active
         )
       `)
-      .not('game_data->divine_points', 'is', null);
+      .not('game_data->divinePoints', 'is', null);
 
     // Add time filter based on period
     const now = new Date();
@@ -1324,7 +1335,7 @@ export const getDivinePointsLeaderboardByPeriod = async (
     }
 
     const { data, error } = await query
-      .order('game_data->divine_points', { ascending: false })
+      .order('game_data->divinePoints', { ascending: false })
       .limit(limit);
 
     if (error) throw error;
@@ -1363,12 +1374,12 @@ export const getDivinePointsLeaderboardByPeriod = async (
         username: username,
         firstName: userData?.first_name,
         lastName: userData?.last_name,
-        divinePoints: Number(entry.game_data?.divine_points) || 0,
-        totalPointsEarned: Number(entry.game_data?.total_points_earned) || 0,
-        pointsPerSecond: Number(entry.game_data?.points_per_second) || 0,
-        highScore: Number(entry.game_data?.high_score) || 0,
-        allTimeHighScore: Number(entry.game_data?.all_time_high_score) || 0,
-        upgradesPurchased: Number(entry.game_data?.upgrades_purchased) || 0,
+        divinePoints: Number(entry.game_data?.divinePoints) || 0,
+        totalPointsEarned: Number(entry.game_data?.totalPointsEarned) || 0,
+        pointsPerSecond: Number(entry.game_data?.pointsPerSecond) || 0,
+        highScore: Number(entry.game_data?.highScore) || 0,
+        allTimeHighScore: Number(entry.game_data?.allTimeHighScore) || 0,
+        upgradesPurchased: Number(entry.game_data?.upgradesPurchased) || 0,
         lastActive: userData?.last_active || new Date().toISOString(),
         joinedAt: userData?.created_at || new Date().toISOString(),
         lastUpdated: entry.last_updated,
@@ -1386,7 +1397,7 @@ export const getUserDivinePointsRank = async (userId: number) => {
     // First get the user's divine points
     const { data: userData, error: userError } = await supabase
       .from('user_game_data')
-      .select('game_data->divine_points')
+      .select('game_data->divinePoints')
       .eq('user_id', userId)
       .single();
 
@@ -1394,13 +1405,13 @@ export const getUserDivinePointsRank = async (userId: number) => {
       return null;
     }
 
-    const userDivinePoints = userData.divine_points || 0;
+    const userDivinePoints = userData.divinePoints || 0;
 
     // Count how many users have more divine points
     const { count, error: countError } = await supabase
       .from('user_game_data')
       .select('*', { count: 'exact', head: true })
-      .gt('game_data->divine_points', userDivinePoints);
+      .gt('game_data->divinePoints', userDivinePoints);
 
     if (countError) throw countError;
 
@@ -1473,13 +1484,22 @@ export const updateGenericUsernames = async () => {
 
 export const getDivinePointsStats = async () => {
   try {
+    console.log('Fetching divine points stats...');
+    
     const { data, error } = await supabase
       .from('user_game_data')
-      .select('game_data->divine_points, game_data->total_points_earned');
+      .select('game_data->divinePoints, game_data->totalPointsEarned');
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase error in getDivinePointsStats:', error);
+      throw error;
+    }
+
+    console.log('Raw stats data:', data);
+    console.log('Raw stats data length:', data?.length);
 
     if (!data || data.length === 0) {
+      console.log('No data found in user_game_data table');
       return {
         totalPlayers: 0,
         totalDivinePoints: 0,
@@ -1489,16 +1509,19 @@ export const getDivinePointsStats = async () => {
       };
     }
 
-    const divinePoints = data.map(entry => Number(entry.divine_points) || 0);
-    const totalPointsEarned = data.map(entry => Number(entry.total_points_earned) || 0);
+    const divinePoints = data.map(entry => Number(entry.divinePoints) || 0);
+    const totalPointsEarned = data.map(entry => Number(entry.totalPointsEarned) || 0);
 
-    return {
+    const stats = {
       totalPlayers: data.length,
       totalDivinePoints: divinePoints.reduce((sum, points) => sum + points, 0),
       averageDivinePoints: divinePoints.reduce((sum, points) => sum + points, 0) / data.length,
       maxDivinePoints: Math.max(...divinePoints),
       totalPointsEarned: totalPointsEarned.reduce((sum, points) => sum + points, 0)
     };
+
+    console.log('Calculated stats:', stats);
+    return stats;
   } catch (error) {
     console.error('Error getting divine points stats:', error);
     return {

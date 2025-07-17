@@ -146,7 +146,6 @@ export const useAuth = () => {
   const [error, setError] = useState<string | null>(null);
   const [debounceTimer, setDebounceTimer] = useState<NodeJS.Timeout | null>(null);
   const [currentEarnings, setCurrentEarnings] = useState(0);
-  const [hasInitialized, setHasInitialized] = useState(false);
   
   const telegramData = useSignal(initData.state);
 
@@ -154,11 +153,6 @@ export const useAuth = () => {
   const [, setSyncInterval] = useState<NodeJS.Timeout | null>(null);
 
   const initializeAuth = useCallback(async () => {
-    // Skip if already initialized and user exists
-    if (hasInitialized && user) {
-      return;
-    }
-
     if (!telegramData?.user) {
       setError('Please open this app in Telegram');
       setIsLoading(false);
@@ -264,23 +258,17 @@ export const useAuth = () => {
         last_login_date: existingUser.last_login_date || new Date().toISOString()
       });
 
-      // Mark as initialized
-      setHasInitialized(true);
-
     } catch (err) {
       console.error('Authentication failed:', err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
       setIsLoading(false);
     }
-  }, [telegramData, hasInitialized, user]);
+  }, [telegramData]);
 
   useEffect(() => {
-    // Only initialize if not already done
-    if (!hasInitialized) {
-      initializeAuth();
-    }
-  }, [initializeAuth, hasInitialized]);
+    initializeAuth();
+  }, [initializeAuth]);
 
   // Real-time subscription to user changes
   useEffect(() => {

@@ -81,7 +81,7 @@ interface NotificationSystemContextType {
   markNotificationAsRead: (id: string) => void;
   clearAllNotifications: () => void;
   showAchievementNotification: (achievement: any) => void;
-  showMilestoneNotification: (milestone: number, currentPoints: number) => void;
+  showMilestoneNotification: (milestone: number) => void;
   showEnergyWarningNotification: (currentEnergy: number, energyCost: number) => void;
   showUpgradeNotification: (upgradeName: string, cost: number) => void;
   showSystemNotification: (title: string, message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
@@ -90,6 +90,7 @@ interface NotificationSystemContextType {
   showRewardNotification: (title: string, amount: number, type?: string) => void;
   showPrestigeNotification: (bonus: number) => void;
   showTutorialNotification: (title: string, message: string) => void;
+  testNotificationSystem: () => void;
   notificationQueue: NotificationQueue;
   notificationSettings: NotificationPreferences;
   setNotificationSettings: React.Dispatch<React.SetStateAction<NotificationPreferences>>;
@@ -207,17 +208,54 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
     try {
       console.log('Adding notification:', notification);
       
-      // Check for duplicate notifications (same title and message within last 2 seconds)
+      // Validate notification data
+      if (!notification.title || !notification.message) {
+        console.warn('Invalid notification data:', notification);
+        return '';
+      }
+      
+      // Check for duplicate notifications (same title and message within last 5 seconds)
       const now = Date.now();
       const recentNotifications = notificationQueue.notifications.filter(n => 
         n.title === notification.title && 
         n.message === notification.message && 
-        (now - n.timestamp) < 2000
+        (now - n.timestamp) < 5000
       );
       
       if (recentNotifications.length > 0) {
         console.log('Duplicate notification detected, skipping:', notification.title);
         return recentNotifications[0].id;
+      }
+      
+      // Check for similar notifications (same type and similar content within last 10 seconds)
+      const similarNotifications = notificationQueue.notifications.filter(n => 
+        n.type === notification.type && 
+        n.title.includes(notification.title.split(' ')[0]) && // Check first word
+        (now - n.timestamp) < 10000
+      );
+      
+      if (similarNotifications.length > 0) {
+        console.log('Similar notification detected, throttling:', notification.title);
+        // Update the existing notification instead of creating a new one
+        const existingNotification = similarNotifications[0];
+        setNotificationQueue(prev => ({
+          ...prev,
+          notifications: prev.notifications.map(n => 
+            n.id === existingNotification.id 
+              ? { ...n, timestamp: now, message: notification.message }
+              : n
+          )
+        }));
+        return existingNotification.id;
+      }
+      
+      // Intelligent grouping for mining-related notifications
+      let groupId = notification.groupId;
+      if (!groupId && (notification.type === 'system' || notification.type === 'milestone')) {
+        if (notification.title.includes('LEVEL UP') || notification.title.includes('CRITICAL') || 
+            notification.title.includes('MILESTONE') || notification.title.includes('STREAK')) {
+          groupId = 'mining-progress';
+        }
       }
       
       const newNotification: Notification = {
@@ -233,7 +271,7 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
         vibration: notification.vibration ?? notificationSettings.vibrationEnabled,
         progress: notification.progress,
         stackable: notification.stackable,
-        groupId: notification.groupId,
+        groupId: groupId,
         expiresAt: notification.expiresAt
       };
 
@@ -286,22 +324,11 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
 
   const dismissNotification = useCallback((id: string) => {
     try {
+      // Immediately remove from queue for better performance
       setNotificationQueue(prev => ({
         ...prev,
-        notifications: prev.notifications.map(notification =>
-          notification.id === id
-            ? { ...notification, dismissed: true }
-            : notification
-        )
+        notifications: prev.notifications.filter(notification => notification.id !== id)
       }));
-
-      // Remove from queue after animation
-      setTimeout(() => {
-        setNotificationQueue(prev => ({
-          ...prev,
-          notifications: prev.notifications.filter(notification => notification.id !== id)
-        }));
-      }, 300);
     } catch (error) {
       console.error('Error dismissing notification:', error);
     }
@@ -324,20 +351,11 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
 
   const clearAllNotifications = useCallback(() => {
     try {
+      // Immediately clear all notifications
       setNotificationQueue(prev => ({
         ...prev,
-        notifications: prev.notifications.map(notification => ({
-          ...notification,
-          dismissed: true
-        }))
+        notifications: []
       }));
-
-      setTimeout(() => {
-        setNotificationQueue(prev => ({
-          ...prev,
-          notifications: []
-        }));
-      }, 300);
     } catch (error) {
       console.error('Error clearing notifications:', error);
     }
@@ -651,9 +669,35 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
     });
   }, [addNotification]);
 
+  // Professional notification test function for debugging
+  const testNotificationSystem = useCallback(() => {
+    console.log('🧪 Testing notification system...');
+    
+    // Test different notification types
+    setTimeout(() => showSystemNotification('Test Success', 'This is a success notification', 'success'), 100);
+    setTimeout(() => showSystemNotification('Test Warning', 'This is a warning notification', 'warning'), 2000);
+    setTimeout(() => showSystemNotification('Test Error', 'This is an error notification', 'error'), 4000);
+    setTimeout(() => showSystemNotification('Test Info', 'This is an info notification', 'info'), 6000);
+    
+    // Test achievement notification
+    setTimeout(() => showAchievementNotification({
+      name: 'Test Achievement',
+      description: 'This is a test achievement'
+    }), 8000);
+    
+    // Test milestone notification
+    setTimeout(() => showMilestoneNotification(1000), 10000);
+    
+    // Test upgrade notification
+    setTimeout(() => showUpgradeNotification('Test Upgrade', 100), 12000);
+    
+    console.log('✅ Notification system test completed');
+  }, [showSystemNotification, showAchievementNotification, showMilestoneNotification, showUpgradeNotification]);
+
   // Enhanced Notification Component
   const NotificationSystem = () => {
     const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+    const [showNotificationSettings, setShowNotificationSettings] = useState(false);
     const [notificationCount, setNotificationCount] = useState(0);
 
     useEffect(() => {
@@ -733,51 +777,125 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
       return colors[type] || colors.info;
     };
 
-    const getAnimationClass = (animation?: string) => {
-      const animations = {
-        'slide-in': 'animate-slide-in',
-        'fade-in': 'animate-fade-in',
-        'bounce-in': 'animate-bounce-in',
-        'scale-in': 'animate-scale-in',
-        'slide-up': 'animate-slide-up',
-        'slide-down': 'animate-slide-down',
-        'zoom-in': 'animate-zoom-in',
-        'flip-in': 'animate-flip-in'
-      };
-      return animations[animation as keyof typeof animations] || 'animate-fade-in';
+      const getAnimationClass = (animation?: string) => {
+    const animations = {
+      'slide-in': 'animate-slideIn',
+      'fade-in': 'animate-fadeIn',
+      'bounce-in': 'animate-bounceIn',
+      'scale-in': 'animate-scaleIn',
+      'slide-up': 'animate-slideUp',
+      'slide-down': 'animate-slideDown',
+      'zoom-in': 'animate-zoomIn',
+      'flip-in': 'animate-flipIn'
     };
+    return animations[animation as keyof typeof animations] || 'animate-fadeIn';
+  };
 
-    const getPositionClass = (position?: string) => {
-      const positions = {
-        'top-right': 'top-4 right-4',
-        'top-left': 'top-4 left-4',
-        'bottom-right': 'bottom-4 right-4',
-        'bottom-left': 'bottom-4 left-4',
-        'top-center': 'top-4 left-1/2 transform -translate-x-1/2',
-        'bottom-center': 'bottom-4 left-1/2 transform -translate-x-1/2',
-        'center': 'fixed inset-1/2 transform -translate-x-1/2 -translate-y-1/2',
-        'smart': 'fixed inset-1/2 transform -translate-x-1/2 -translate-y-1/2'
-      };
-      return positions[position as keyof typeof positions] || 'top-4 right-4';
+      const getPositionClass = (position?: string) => {
+    const positions = {
+      'top-right': 'top-4 right-4',
+      'top-left': 'top-4 left-4',
+      'bottom-right': 'bottom-4 right-4',
+      'bottom-left': 'bottom-4 left-4',
+      'top-center': 'top-4 left-1/2 -translate-x-1/2',
+      'bottom-center': 'bottom-4 left-1/2 -translate-x-1/2',
+      'center': 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
+      'smart': 'top-4 right-4'
     };
+    return positions[position as keyof typeof positions] || 'top-4 right-4';
+  };
 
-    // Group notifications by position for better stacking
-    const groupedNotifications = notificationQueue.notifications.reduce((groups, notification) => {
-      const position = notification.position || 'top-right';
-      if (!groups[position]) {
-        groups[position] = [];
-      }
-      groups[position].push(notification);
-      return groups;
-    }, {} as Record<string, Notification[]>);
+    // Group notifications by position and type for better organization
+    const groupedNotifications = notificationQueue.notifications
+      .slice(0, 10) // Limit to 10 notifications for performance
+      .reduce((groups, notification) => {
+        const position = notification.position || 'top-right';
+        if (!groups[position]) {
+          groups[position] = [];
+        }
+        
+        // Check if we should group with existing mining progress notifications
+        if (notification.groupId === 'mining-progress') {
+          const existingMiningNotification = groups[position].find(n => n.groupId === 'mining-progress');
+          if (existingMiningNotification) {
+            // Update existing mining progress notification
+            const index = groups[position].findIndex(n => n.id === existingMiningNotification.id);
+            groups[position][index] = {
+              ...existingMiningNotification,
+              message: `${existingMiningNotification.message} • ${notification.message}`,
+              timestamp: notification.timestamp
+            };
+            return groups;
+          }
+        }
+        
+        groups[position].push(notification);
+        return groups;
+      }, {} as Record<string, Notification[]>);
 
     return (
       <>
+        {/* CSS Animations */}
+        <style dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes slideIn {
+              from { transform: translateX(100%); opacity: 0; }
+              to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes fadeIn {
+              from { opacity: 0; transform: scale(0.9); }
+              to { opacity: 1; transform: scale(1); }
+            }
+            @keyframes bounceIn {
+              0% { transform: scale(0.3); opacity: 0; }
+              50% { transform: scale(1.05); }
+              70% { transform: scale(0.9); }
+              100% { transform: scale(1); opacity: 1; }
+            }
+            @keyframes scaleIn {
+              from { transform: scale(0); opacity: 0; }
+              to { transform: scale(1); opacity: 1; }
+            }
+            @keyframes slideUp {
+              from { transform: translateY(100%); opacity: 0; }
+              to { transform: translateY(0); opacity: 1; }
+            }
+            @keyframes slideDown {
+              from { transform: translateY(-100%); opacity: 0; }
+              to { transform: translateY(0); opacity: 1; }
+            }
+            @keyframes zoomIn {
+              from { transform: scale(0.5); opacity: 0; }
+              to { transform: scale(1); opacity: 1; }
+            }
+            @keyframes flipIn {
+              from { transform: perspective(400px) rotateY(90deg); opacity: 0; }
+              to { transform: perspective(400px) rotateY(0deg); opacity: 1; }
+            }
+            @keyframes slideOut {
+              from { transform: translateX(0); opacity: 1; }
+              to { transform: translateX(100%); opacity: 0; }
+            }
+            
+            .animate-slideIn { animation: slideIn 0.3s ease-out; }
+            .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
+            .animate-bounceIn { animation: bounceIn 0.6s ease-out; }
+            .animate-scaleIn { animation: scaleIn 0.3s ease-out; }
+            .animate-slideUp { animation: slideUp 0.3s ease-out; }
+            .animate-slideDown { animation: slideDown 0.3s ease-out; }
+            .animate-zoomIn { animation: zoomIn 0.3s ease-out; }
+            .animate-flipIn { animation: flipIn 0.4s ease-out; }
+            .animate-slideOut { animation: slideOut 0.3s ease-in; }
+          `
+        }} />
+
         {/* Notification Bell */}
-        <div className="fixed top-20 sm:top-4 right-4 sm:right-4 z-[9999]">
+        <div className="fixed top-[225px] sm:top-4 right-[32px] sm:right-4 z-[9999] flex flex-col gap-2">
+          {/* Test Button (only in development) */}
           <button
             onClick={() => setShowNotificationCenter(!showNotificationCenter)}
             className="relative p-2 sm:p-3 bg-black/80 backdrop-blur-xl border-2 border-cyan-500/50 rounded-lg hover:bg-black/90 hover:border-cyan-400/70 transition-all duration-300 group shadow-lg"
+            title="Notifications"
           >
             <div className="w-6 h-6 text-cyan-400 group-hover:text-cyan-300 transition-colors text-lg">
               🔔
@@ -788,6 +906,8 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
               </div>
             )}
           </button>
+          
+         
         </div>
 
         {/* Notification Center */}
@@ -855,22 +975,116 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
           </div>
         )}
 
+        {/* Notification Settings Panel */}
+        {showNotificationSettings && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9998]" onClick={() => setShowNotificationSettings(false)}>
+            <div className="absolute top-16 right-2 sm:right-4 w-[calc(100vw-1rem)] sm:w-80 max-h-[calc(100vh-8rem)] bg-black/95 backdrop-blur-xl border border-gray-500/50 rounded-xl shadow-[0_0_30px_rgba(128,128,128,0.3)] overflow-hidden">
+              <div className="p-3 sm:p-4 border-b border-gray-500/30 flex justify-between items-center bg-black/50">
+                <h3 className="text-gray-400 font-mono font-bold text-sm sm:text-base">Notification Settings</h3>
+                <button
+                  onClick={() => setShowNotificationSettings(false)}
+                  className="text-xs text-gray-400 hover:text-white font-mono"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="p-4 space-y-4 bg-black/80">
+                {/* General Settings */}
+                <div>
+                  <h4 className="text-gray-300 font-mono font-bold text-sm mb-3">GENERAL SETTINGS</h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 font-mono text-xs">Sound</span>
+                      <button
+                        onClick={() => setNotificationSettings(prev => ({ ...prev, soundEnabled: !prev.soundEnabled }))}
+                        className={`w-8 h-4 rounded-full transition-colors ${notificationSettings.soundEnabled ? 'bg-cyan-500' : 'bg-gray-600'}`}
+                      >
+                        <div className={`w-3 h-3 bg-white rounded-full transition-transform ${notificationSettings.soundEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 font-mono text-xs">Vibration</span>
+                      <button
+                        onClick={() => setNotificationSettings(prev => ({ ...prev, vibrationEnabled: !prev.vibrationEnabled }))}
+                        className={`w-8 h-4 rounded-full transition-colors ${notificationSettings.vibrationEnabled ? 'bg-cyan-500' : 'bg-gray-600'}`}
+                      >
+                        <div className={`w-3 h-3 bg-white rounded-full transition-transform ${notificationSettings.vibrationEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 font-mono text-xs">Auto-dismiss</span>
+                      <button
+                        onClick={() => setNotificationSettings(prev => ({ ...prev, autoDismiss: !prev.autoDismiss }))}
+                        className={`w-8 h-4 rounded-full transition-colors ${notificationSettings.autoDismiss ? 'bg-cyan-500' : 'bg-gray-600'}`}
+                      >
+                        <div className={`w-3 h-3 bg-white rounded-full transition-transform ${notificationSettings.autoDismiss ? 'translate-x-4' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Category Settings */}
+                <div>
+                  <h4 className="text-gray-300 font-mono font-bold text-sm mb-3">NOTIFICATION TYPES</h4>
+                  <div className="space-y-3">
+                    {Object.entries(notificationSettings.categories).map(([category, enabled]) => (
+                      <div key={category} className="flex items-center justify-between">
+                        <span className="text-gray-400 font-mono text-xs capitalize">{category}</span>
+                        <button
+                          onClick={() => setNotificationSettings(prev => ({
+                            ...prev,
+                            categories: {
+                              ...prev.categories,
+                              [category]: !enabled
+                            }
+                          }))}
+                          className={`w-8 h-4 rounded-full transition-colors ${enabled ? 'bg-cyan-500' : 'bg-gray-600'}`}
+                        >
+                          <div className={`w-3 h-3 bg-white rounded-full transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Position Settings */}
+                <div>
+                  <h4 className="text-gray-300 font-mono font-bold text-sm mb-3">POSITION</h4>
+                  <select
+                    value={notificationSettings.position}
+                    onChange={(e) => setNotificationSettings(prev => ({ ...prev, position: e.target.value as any }))}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-gray-300 font-mono text-xs"
+                  >
+                    <option value="top-right">Top Right</option>
+                    <option value="top-left">Top Left</option>
+                    <option value="bottom-right">Bottom Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="top-center">Top Center</option>
+                    <option value="bottom-center">Bottom Center</option>
+                    <option value="center">Center</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Individual Notifications - Grouped by position */}
         {Object.entries(groupedNotifications).map(([position, notifications]) => (
-          <div key={position} className={`fixed z-[9997] ${getPositionClass(position)}`}>
+          <div key={position} className={`fixed z-[9997] ${getPositionClass(position)} flex flex-col gap-2`}>
             {notifications.map((notification, index) => (
               <div
                 key={notification.id}
-                className={`max-w-sm w-full mb-2 ${getAnimationClass(notification.animation)} ${
-                  notification.dismissed ? 'animate-slide-out' : ''
+                className={`max-w-sm w-full ${getAnimationClass(notification.animation)} ${
+                  notification.dismissed ? 'animate-slideOut' : ''
                 }`}
                 style={{ 
                   pointerEvents: 'auto',
-                  transform: `translateY(${index * 10}px)`,
-                  zIndex: 9997 - index
+                  zIndex: 9997 - index,
+                  transform: `translateY(${index * 8}px)`
                 }}
               >
-                <div className={`p-3 sm:p-4 rounded-xl border backdrop-blur-xl shadow-[0_0_20px_rgba(0,255,255,0.1)] ${getNotificationColor(notification.type)} min-w-[280px] max-w-[400px] sm:max-w-[450px]`}>
+                <div className={`p-3 sm:p-4 rounded-xl border backdrop-blur-xl shadow-[0_0_20px_rgba(0,255,255,0.1)] ${getNotificationColor(notification.type)} min-w-[280px] max-w-[400px] sm:max-w-[450px] transition-all duration-300 hover:shadow-[0_0_30px_rgba(0,255,255,0.2)]`}>
                   <div className="flex items-start gap-2 sm:gap-3">
                     <div className="flex-shrink-0">
                       <span className="text-xl sm:text-2xl">{getNotificationIcon(notification.type)}</span>
@@ -885,6 +1099,30 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
                           <p className="text-gray-300 font-mono text-xs">{notification.description}</p>
                         </div>
                       )}
+                      {notification.actions && notification.actions.length > 0 && (
+                        <div className="flex gap-2 mt-3">
+                          {notification.actions.map((action, actionIndex) => (
+                            <button
+                              key={actionIndex}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                action.action();
+                              }}
+                              disabled={action.disabled}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all duration-300 ${
+                                action.type === 'primary' ? 'bg-cyan-600 hover:bg-cyan-500 text-white' :
+                                action.type === 'secondary' ? 'bg-gray-600 hover:bg-gray-500 text-white' :
+                                action.type === 'danger' ? 'bg-red-600 hover:bg-red-500 text-white' :
+                                action.type === 'success' ? 'bg-green-600 hover:bg-green-500 text-white' :
+                                'bg-yellow-600 hover:bg-yellow-500 text-white'
+                              } ${action.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
+                            >
+                              {action.icon && <span className="mr-1">{action.icon}</span>}
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <div className="flex items-center justify-between mt-2">
                         <span className="text-gray-400 font-mono text-xs">
                           {formatTimestamp(notification.timestamp)}
@@ -895,7 +1133,7 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
                               e.stopPropagation();
                               dismissNotification(notification.id);
                             }}
-                            className="text-gray-400 hover:text-white transition-colors text-xs font-mono"
+                            className="text-gray-400 hover:text-white transition-colors text-xs font-mono p-1 hover:bg-white/10 rounded"
                           >
                             ✕
                           </button>
@@ -927,6 +1165,7 @@ export const NotificationSystemProvider: React.FC<NotificationSystemProps> = ({ 
     showRewardNotification,
     showPrestigeNotification,
     showTutorialNotification,
+    testNotificationSystem,
     notificationQueue,
     notificationSettings,
     setNotificationSettings

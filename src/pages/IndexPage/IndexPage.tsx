@@ -1,4 +1,4 @@
-import { FC, useState } from 'react';
+import { FC, useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/contexts/ThemeContext';
 import { OnboardingScreen } from './OnboardingScreen';
@@ -12,6 +12,7 @@ import { ReferralSystem } from '@/components/ReferralSystem';
 // import { Address } from '@ton/core';
 import { useReferralIntegration } from '@/hooks/useReferralIntegration';
 import { GameProvider } from '@/contexts/GameContext';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { 
   GiCrystalBall, 
   GiCrystalCluster,
@@ -41,12 +42,35 @@ import { BiHome } from 'react-icons/bi';
 
 export const IndexPage: FC = () => {
   const { user, isLoading, error } = useAuth();
+  
+  // Skip loading if user is already authenticated
+  const shouldShowLoading = isLoading && !user;
   const { theme } = useTheme();
   const [currentTab, setCurrentTab] = useState('zodiac');
+  const [showNetworkWarning, setShowNetworkWarning] = useState(false);
   // const connectedAddressString = useTonAddress();
   
   // Add referral integration
   useReferralIntegration();
+  
+  // Monitor network status
+  useEffect(() => {
+    const handleOnline = () => {
+      setShowNetworkWarning(false);
+    };
+    
+    const handleOffline = () => {
+      setShowNetworkWarning(true);
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
   
   // const connectedAddress = useMemo(() => {
   //   return isValidAddress(connectedAddressString)
@@ -198,7 +222,8 @@ export const IndexPage: FC = () => {
 
   const colors = getThemeColors();
   
-  if (isLoading) {
+  // Only show loading on initial load, not when switching tabs
+  if (shouldShowLoading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-black via-gray-900 to-black transition-all duration-1000">
         {/* Futuristic Background Effects */}
@@ -322,8 +347,15 @@ export const IndexPage: FC = () => {
   }
 
   return (
-    <GameProvider>
-      <div className="w-full min-h-screen relative overflow-hidden">
+    <ErrorBoundary>
+      <GameProvider>
+        <div className="w-full min-h-screen relative overflow-hidden">
+          {/* Network Warning */}
+          {showNetworkWarning && (
+            <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-red-600 to-red-500 text-white p-3 text-center font-mono font-bold text-sm animate-pulse">
+              ⚠️ NO INTERNET CONNECTION - Some features may be limited
+            </div>
+          )}
       {/* Futuristic Cyberpunk Background */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         {/* Main cyberpunk gradient */}
@@ -397,71 +429,74 @@ export const IndexPage: FC = () => {
       <div className="relative z-10">
         {!isLoading && user && <OnboardingScreen />}
 
-        {/* Futuristic Main Content Area */}
-        <div className="flex-1 pb-10">
-          {/* Shared Stats Header - Shows across all tabs */}
-          <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-3 mb-0 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
-            {/* Futuristic Corner Accents */}
-            <div className="absolute top-0 left-0 w-2 h-2 border-l-2 border-t-2 border-cyan-400"></div>
-            <div className="absolute top-0 right-0 w-2 h-2 border-r-2 border-t-2 border-cyan-400"></div>
-            <div className="absolute bottom-0 left-0 w-2 h-2 border-l-2 border-b-2 border-cyan-400"></div>
-            <div className="absolute bottom-0 right-0 w-2 h-2 border-r-2 border-b-2 border-cyan-400"></div>
-            
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-                  <span className="text-cyan-400 font-mono font-bold">STATUS</span>
-                </div>
-                <div className="text-cyan-300 font-mono">
-                  {currentTab === 'zodiac' ? 'MINING ACTIVE' : 'SYSTEM ONLINE'}
-                </div>
-              </div>
-              
-              <div className="flex items-center space-x-4">
-                {/* <div className="text-center">
-                  <div className="text-cyan-300 font-mono font-bold">
-                    {(() => {
-                      // Get points from localStorage since DivineMiningGame manages them
-                      const savedPoints = localStorage.getItem('divineMiningPoints');
-                      return savedPoints ? parseInt(savedPoints, 10).toLocaleString() : '0';
-                    })()}
-                  </div>
-                  <div className="text-gray-400 font-mono text-[10px] tracking-wide">POINTS</div>
-                </div>
-                 */}
-                <div className="text-center">
-                  <div className="text-purple-300 font-mono font-bold">
-                    {(() => {
-                      const savedGems = localStorage.getItem('divineMiningGems');
-                      return savedGems ? parseInt(savedGems, 10).toString() : '0';
-                    })()}
-                  </div>
-                  <div className="text-gray-400 font-mono text-[10px]">GEMS</div>
-                </div>
-                
-                <div className="text-center">
-                  <div className="text-green-300 font-mono font-bold">
-                    {(() => {
-                      const savedHighScore = localStorage.getItem('divineMiningHighScore');
-                      return savedHighScore ? parseInt(savedHighScore, 10).toLocaleString() : '0';
-                    })()}
-                  </div>
-                  <div className="text-gray-400 font-mono text-[10px]">HIGH SCORE</div>
-                </div>
-              </div>
-            </div>
-          </div>
+                 {/* Enhanced Cyberpunk Main Content Area */}
+         <div className="flex-1 pb-20 px-4 pt-4 max-w-md mx-auto">
+           
+           {/* Ultra-Compact Cyberpunk Stats Header */}
+           <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 mb-2 shadow-[0_0_30px_rgba(0,255,255,0.1)] overflow-hidden game-card-frame">
+             {/* Futuristic Corner Accents */}
+             <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400 corner-accent"></div>
+             <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400 corner-accent"></div>
+             <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400 corner-accent"></div>
+             <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400 corner-accent"></div>
+             
+             {/* Dynamic Background Glow */}
+             <div className="absolute inset-0 rounded-xl transition-all duration-1000 bg-gradient-to-br from-cyan-500/10 via-blue-500/5 to-purple-500/10 animate-pulse"></div>
+             
+             {/* Single Line Content */}
+             <div className="relative z-10 flex items-center justify-between space-x-2">
+               {/* Status + Title */}
+               <div className="flex items-center space-x-1.5">
+                 <div className="w-2 h-2 bg-gradient-to-r from-cyan-400 to-cyan-500 rounded-full animate-pulse shadow-lg shadow-cyan-400/50"></div>
+                 <span className="text-cyan-400 font-mono font-bold text-[10px] tracking-wider">MINING</span>
+                 <div className="w-px h-3 bg-gradient-to-b from-transparent via-cyan-500/50 to-transparent"></div>
+                 <div className="text-cyan-300 font-mono text-[9px] font-medium">
+                   {currentTab === 'zodiac' ? 'ACTIVE' : 'ONLINE'}
+                 </div>
+               </div>
+               
+               {/* Stats Section */}
+               <div className="flex items-center space-x-3">
+                 {/* Gems */}
+                 <div className="flex items-center space-x-1">
+                   <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></div>
+                   <span className="text-purple-400 font-mono font-bold text-[9px] uppercase">💎</span>
+                   <span className="text-purple-300 font-mono font-bold text-sm">
+                     {(() => {
+                       const userGemsKey = user?.id ? `divineMiningGems_${user.id}` : 'divineMiningGems';
+                       const savedGems = localStorage.getItem(userGemsKey);
+                       const gems = savedGems ? parseInt(savedGems, 10) : 0;
+                       return gems >= 1000 ? `${(gems / 1000).toFixed(1)}K` : gems.toString();
+                     })()}
+                   </span>
+                 </div>
+                 
+                 {/* Separator */}
+                 <div className="w-px h-3 bg-gradient-to-b from-transparent via-gray-500/50 to-transparent"></div>
+               </div>
+               
+               {/* User Badge */}
+               {user?.username && (
+                 <div className="flex items-center space-x-1 bg-gradient-to-r from-gray-900/80 to-black/80 rounded-full px-1.5 py-0.5 border border-cyan-500/30 backdrop-blur-sm">
+                   <div className="w-4 h-4 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-full flex items-center justify-center text-[10px] font-bold text-black shadow-lg">
+                     {user.username.charAt(0).toUpperCase()}
+                   </div>
+                   <span className="text-cyan-300 font-mono font-bold text-[10px] truncate max-w-[100px]">
+                     {user.username}
+                   </span>
+                 </div>
+               )}
+             </div>
+           </div>
 
-          {currentTab === 'daily' && <DailyRewards />}
 
           {currentTab === 'zodiac' && <DivineMiningGame />}
-
+          {currentTab === 'daily' && <DailyRewards />}
           {currentTab === 'divine' && <DivinePointsLeaderboard />}
 
           {currentTab === 'crystals' && (
             <div className="flex-1 overflow-y-auto">
-              <TaskCenter />
+              <TaskCenter/>
             </div>
           )}
 
@@ -473,95 +508,146 @@ export const IndexPage: FC = () => {
 
         </div>
 
-        {/* Compact Cyberpunk Bottom Navigation */}
-        <div className={`fixed bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-gray-900/90 to-black/95 backdrop-blur-xl border-t border-cyan-500/30 safe-area-pb z-40 shadow-[0_-4px_16px_0_rgba(0,255,255,0.1)] transition-all duration-300`}>
-          <div className="max-w-lg mx-auto px-1 relative">
-            <div className="grid grid-cols-5 items-center gap-1">
-              {[
-                { id: 'zodiac', text: 'Play', Icon: BiHome },
-                { id: 'daily', text: 'Rewards', Icon: GiCrystalBall },
-                { id: 'divine', text: 'Divine', Icon: GiDiamonds },
-                { id: 'crystals', text: 'Tasks', Icon: GiCrystalCluster },
-                { id: 'spells', text: 'Friends', Icon: GiSpellBook }, 
-              ].map(({ id, text, Icon }) => {
-                const isActive = currentTab === id;
-                return (
-                  <button 
-                    key={id} 
-                    aria-label={text}
-                    onClick={() => setCurrentTab(id)}
-                    className={`
-                      group relative flex flex-col items-center py-2 w-full transition-all duration-300
-                      font-mono font-bold tracking-wide
-                      ${isActive 
-                        ? 'text-cyan-400 drop-shadow-[0_0_12px_rgba(0,255,255,0.5)]'
-                        : 'text-gray-400 hover:text-cyan-300 hover:drop-shadow-[0_0_8px_rgba(0,255,255,0.3)]'
-                      }
-                    `}
-                  >
-                    {/* Compact Icon Container */}
-                    <div className={`
-                      relative flex items-center justify-center rounded-lg transition-all duration-300 mb-1
-                      ${isActive 
-                        ? 'bg-gradient-to-br from-cyan-500 to-blue-600 shadow-[0_0_15px_rgba(0,255,255,0.4)] scale-105 border border-cyan-400'
-                        : 'bg-gradient-to-br from-gray-700 to-gray-800 group-hover:from-cyan-600 group-hover:to-blue-700 border border-gray-600 group-hover:border-cyan-500 group-hover:shadow-[0_0_12px_rgba(0,255,255,0.2)]'
-                      }
-                    `}
-                      style={{
-                        width: 36,
-                        height: 36,
-                      }}
-                    >
-                      {/* Compact Glow Effect */}
-                      {isActive && (
-                        <div className="absolute inset-0 bg-cyan-400/20 rounded-lg blur-sm animate-pulse" style={{ animationDuration: '2s' }}></div>
-                      )}
-                      
-                      <Icon 
-                        size={16} 
-                        className={`
-                          relative z-10 transition-all duration-300
-                          ${isActive 
-                            ? 'text-white drop-shadow-[0_0_6px_rgba(0,255,255,0.6)]' 
-                            : 'text-gray-300 group-hover:text-white group-hover:drop-shadow-[0_0_4px_rgba(0,255,255,0.4)]'
-                          }
-                        `} 
-                      />
-                    </div>
-                    
-                    {/* Compact Text */}
-                    <span className={`
-                      text-[8px] font-mono font-bold tracking-wide truncate max-w-[50px] text-center transition-all duration-300
-                      ${isActive 
-                        ? 'text-cyan-300 drop-shadow-[0_0_4px_rgba(0,255,255,0.4)]'
-                        : 'text-gray-400 group-hover:text-cyan-300 group-hover:drop-shadow-[0_0_3px_rgba(0,255,255,0.3)]'
-                      }
-                    `}
-                      style={{
-                        letterSpacing: '0.5px',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {text}
-                    </span>
-                    
-                    {/* Compact Active Indicator */}
-                    {isActive && (
-                      <div className="absolute -bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-cyan-400 rounded-full animate-ping"></div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          
-          {/* Compact Bottom Border Glow */}
-          <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500 to-transparent animate-pulse" style={{ animationDuration: '3s' }}></div>
-        </div>
+                 {/* Enhanced Cyberpunk Bottom Navigation */}
+         <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-black/98 via-gray-900/95 to-black/98 backdrop-blur-2xl border-t border-cyan-500/40 safe-area-pb z-40 shadow-[0_-8px_32px_0_rgba(0,255,255,0.15)] transition-all duration-300 overflow-hidden">
+           {/* Enhanced Top Border with Animation */}
+           <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-cyan-500/60 to-transparent animate-pulse" style={{ animationDuration: '4s' }}></div>
+           
+           {/* Holographic Scan Effect */}
+           <div className="absolute inset-0 bg-gradient-to-b from-cyan-500/2 via-transparent to-transparent animate-pulse" style={{ animationDuration: '5s' }}></div>
+           
+           <div className="max-w-lg mx-auto px-3 py-3 relative">
+             <div className="grid grid-cols-5 items-center gap-2">
+               {[
+                 { id: 'zodiac', text: 'Play', Icon: BiHome, color: 'cyan' },
+                 { id: 'daily', text: 'Rewards', Icon: GiCrystalBall, color: 'purple' },
+                 { id: 'divine', text: 'Divine', Icon: GiDiamonds, color: 'yellow' },
+                 { id: 'crystals', text: 'Tasks', Icon: GiCrystalCluster, color: 'green' },
+                 { id: 'spells', text: 'Friends', Icon: GiSpellBook, color: 'pink' }, 
+               ].map(({ id, text, Icon, color }) => {
+                 const isActive = currentTab === id;
+                 
+                 const getColorClasses = (colorName: string, active: boolean) => {
+                   const colors = {
+                     cyan: {
+                       bg: active ? 'from-cyan-500/80 to-cyan-600/60' : 'from-gray-700/80 to-gray-800/60',
+                       border: active ? 'border-cyan-400/60' : 'border-gray-600/40',
+                       text: active ? 'text-cyan-300' : 'text-gray-400',
+                       glow: active ? 'shadow-[0_0_20px_rgba(6,182,212,0.4)]' : '',
+                       hover: 'group-hover:from-cyan-600/60 group-hover:to-cyan-700/40 group-hover:border-cyan-500/50'
+                     },
+                     purple: {
+                       bg: active ? 'from-purple-500/80 to-purple-600/60' : 'from-gray-700/80 to-gray-800/60',
+                       border: active ? 'border-purple-400/60' : 'border-gray-600/40',
+                       text: active ? 'text-purple-300' : 'text-gray-400',
+                       glow: active ? 'shadow-[0_0_20px_rgba(147,51,234,0.4)]' : '',
+                       hover: 'group-hover:from-purple-600/60 group-hover:to-purple-700/40 group-hover:border-purple-500/50'
+                     },
+                     yellow: {
+                       bg: active ? 'from-yellow-500/80 to-yellow-600/60' : 'from-gray-700/80 to-gray-800/60',
+                       border: active ? 'border-yellow-400/60' : 'border-gray-600/40',
+                       text: active ? 'text-yellow-300' : 'text-gray-400',
+                       glow: active ? 'shadow-[0_0_20px_rgba(251,191,36,0.4)]' : '',
+                       hover: 'group-hover:from-yellow-600/60 group-hover:to-yellow-700/40 group-hover:border-yellow-500/50'
+                     },
+                     green: {
+                       bg: active ? 'from-emerald-500/80 to-emerald-600/60' : 'from-gray-700/80 to-gray-800/60',
+                       border: active ? 'border-emerald-400/60' : 'border-gray-600/40',
+                       text: active ? 'text-emerald-300' : 'text-gray-400',
+                       glow: active ? 'shadow-[0_0_20px_rgba(16,185,129,0.4)]' : '',
+                       hover: 'group-hover:from-emerald-600/60 group-hover:to-emerald-700/40 group-hover:border-emerald-500/50'
+                     },
+                     pink: {
+                       bg: active ? 'from-pink-500/80 to-pink-600/60' : 'from-gray-700/80 to-gray-800/60',
+                       border: active ? 'border-pink-400/60' : 'border-gray-600/40',
+                       text: active ? 'text-pink-300' : 'text-gray-400',
+                       glow: active ? 'shadow-[0_0_20px_rgba(236,72,153,0.4)]' : '',
+                       hover: 'group-hover:from-pink-600/60 group-hover:to-pink-700/40 group-hover:border-pink-500/50'
+                     }
+                   };
+                   return colors[colorName as keyof typeof colors];
+                 };
+                 
+                 const colorClasses = getColorClasses(color, isActive);
+                 
+                 return (
+                   <button 
+                     key={id} 
+                     aria-label={text}
+                     onClick={() => setCurrentTab(id)}
+                     className={`
+                       group relative flex flex-col items-center py-2 px-1 w-full transition-all duration-300 rounded-xl
+                       ${isActive ? 'scale-105' : 'hover:scale-102'}
+                     `}
+                   >
+                     {/* Enhanced Icon Container */}
+                     <div className={`
+                       relative flex items-center justify-center rounded-xl transition-all duration-300 mb-1.5 border-2
+                       bg-gradient-to-br ${colorClasses.bg} ${colorClasses.border} ${colorClasses.glow} ${colorClasses.hover}
+                     `}
+                       style={{
+                         width: 40,
+                         height: 40,
+                       }}
+                     >
+                       {/* Enhanced Glow Effect */}
+                       {isActive && (
+                         <>
+                           <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent rounded-xl animate-pulse" style={{ animationDuration: '2s' }}></div>
+                           <div className="absolute -inset-1 bg-gradient-to-br from-current/20 to-transparent rounded-xl blur-sm animate-pulse" style={{ animationDuration: '3s' }}></div>
+                         </>
+                       )}
+                       
+                       {/* Floating Particles for Active Tab */}
+                       {isActive && (
+                         <>
+                           <div className="absolute top-0 right-0 w-1 h-1 bg-current rounded-full animate-ping opacity-60"></div>
+                           <div className="absolute bottom-0 left-0 w-1 h-1 bg-current rounded-full animate-ping opacity-40" style={{ animationDelay: '0.5s' }}></div>
+                         </>
+                       )}
+                       
+                       <Icon 
+                         size={18} 
+                         className={`
+                           relative z-10 transition-all duration-300
+                           ${isActive 
+                             ? 'text-white filter drop-shadow-[0_0_8px_currentColor]' 
+                             : 'text-gray-300 group-hover:text-white group-hover:drop-shadow-[0_0_4px_currentColor]'
+                           }
+                         `} 
+                       />
+                     </div>
+                     
+                     {/* Enhanced Text */}
+                     <span className={`
+                       text-[9px] font-mono font-bold tracking-wider truncate max-w-[55px] text-center transition-all duration-300 uppercase
+                       ${colorClasses.text} group-hover:text-gray-300
+                       ${isActive ? 'filter drop-shadow-[0_0_4px_currentColor]' : ''}
+                     `}>
+                       {text}
+                     </span>
+                     
+                     {/* Enhanced Active Indicator */}
+                     {isActive && (
+                       <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-6 h-0.5 bg-current rounded-full animate-pulse"></div>
+                     )}
+                   </button>
+                 );
+               })}
+             </div>
+           </div>
+           
+           {/* Enhanced Bottom Effects */}
+           <div className="absolute bottom-0 left-0 right-0">
+             <div className="h-px bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent animate-pulse" style={{ animationDuration: '6s' }}></div>
+             <div className="h-px bg-gradient-to-r from-transparent via-blue-500/20 to-transparent animate-pulse" style={{ animationDuration: '8s', animationDelay: '1s' }}></div>
+           </div>
+         </div>
+               </div>
       </div>
-    </div>
-    </GameProvider>
-  );
-};
+        </GameProvider>
+      </ErrorBoundary>
+    );
+  };
 
 

@@ -203,7 +203,6 @@ const getCurrentTier = (level: number) => {
 //   </div>
 // );
 
-
 export const DivineMiningGame: React.FC = () => {
   const { setPoints, activeBoosts } = useGameContext();
   const { user } = useAuth();
@@ -1262,8 +1261,6 @@ export const DivineMiningGame: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(getInitialState);
   const [hasLoadedSavedData, setHasLoadedSavedData] = useState(false);
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadingMessage, setLoadingMessage] = useState('Initializing...');
   
   // Add debug function to show user-specific data
   const debugUserData = useCallback(() => {
@@ -1882,41 +1879,8 @@ export const DivineMiningGame: React.FC = () => {
       if (savedUpgrades) {
         const parsed = JSON.parse(savedUpgrades);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Validate and fix upgrade data
-          const validatedUpgrades = parsed.map(upgrade => {
-            // Ensure all required fields exist
-            const validatedUpgrade = {
-              id: upgrade.id || 'unknown',
-              name: upgrade.name || 'Unknown Upgrade',
-              level: Math.max(0, Math.min(upgrade.level || 0, upgrade.maxLevel || 50)),
-              effect: upgrade.effect || '+0 effect',
-              baseCost: Math.max(1, upgrade.baseCost || 25),
-              costMultiplier: Math.max(1.01, upgrade.costMultiplier || 1.12),
-              effectValue: upgrade.effectValue || 0,
-              category: upgrade.category || 'chakra',
-              description: upgrade.description || 'An upgrade',
-              requires: upgrade.requires || undefined,
-              detailedDescription: upgrade.detailedDescription || upgrade.description || 'An upgrade',
-              benefits: upgrade.benefits || ['No benefits listed'],
-              tips: upgrade.tips || ['No tips available'],
-              unlockProgress: Math.max(0, Math.min(100, upgrade.unlockProgress || 0)),
-              maxLevel: Math.max(1, upgrade.maxLevel || 50),
-              unlockReward: upgrade.unlockReward || 'No reward'
-            };
-            
-            // Log any fixes made
-            if (upgrade.level !== validatedUpgrade.level || upgrade.baseCost !== validatedUpgrade.baseCost || upgrade.costMultiplier !== validatedUpgrade.costMultiplier) {
-              console.log(`Fixed upgrade data for ${upgrade.name}:`, {
-                original: { level: upgrade.level, baseCost: upgrade.baseCost, costMultiplier: upgrade.costMultiplier },
-                fixed: { level: validatedUpgrade.level, baseCost: validatedUpgrade.baseCost, costMultiplier: validatedUpgrade.costMultiplier }
-              });
-            }
-            
-            return validatedUpgrade;
-          });
-          
-          console.log('Loaded and validated upgrades from localStorage:', validatedUpgrades);
-          return validatedUpgrades;
+          console.log('Loaded upgrades from localStorage:', parsed);
+          return parsed;
         }
       }
     } catch (error) {
@@ -2480,8 +2444,15 @@ export const DivineMiningGame: React.FC = () => {
 
   // Add missing upgrade functions after upgrades are defined
   const isUpgradeMaxed = useCallback((upgrade: Upgrade): boolean => {
-    // Use the maxLevel property from the upgrade definition
-    const maxLevel = upgrade.maxLevel || 50;
+    // Define max levels for different upgrades
+    const maxLevels: Record<string, number> = {
+      'mining-speed': 100,
+      'energy-efficiency': 50,
+      'auto-mining': 1,
+      'divine-resonance': 5,
+    };
+    
+    const maxLevel = maxLevels[upgrade.id] || 50;
     return upgrade.level >= maxLevel;
   }, []);
 
@@ -2571,85 +2542,25 @@ export const DivineMiningGame: React.FC = () => {
     return (isNaN(baseRate) ? 1.0 : baseRate) * enhancedMultiplier;
   }, [gameState.pointsPerSecond, activeBoosts, upgrades]);
 
-  // Calculate energy regeneration rate including upgrades
-  const getEnergyRegenerationRate = useCallback(() => {
-    const baseRegenRate = 0.5; // Base energy regeneration per second
-    
-    // Add energy regeneration upgrades
-    const energyRegenUpgrades = upgrades.filter(u => 
-      ['psychic-awareness', 'divine-resonance', 'mindful-breathing', 'water-element'].includes(u.id)
-    );
-    
-    const regenBonus = energyRegenUpgrades.reduce((sum, u) => {
-      const effectValue = Number(u.effectValue);
-      const level = Number(u.level);
-      return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
-    }, 0);
-    
-    return baseRegenRate + regenBonus;
-  }, [upgrades]);
-
-  // Calculate energy efficiency bonus from upgrades
-  const getEnergyEfficiencyBonus = useCallback(() => {
-    const efficiencyUpgrades = upgrades.filter(u => 
-      ['inner-strength', 'aura-purification', 'energy-mastery', 'air-element'].includes(u.id)
-    );
-    
-    const efficiencyBonus = efficiencyUpgrades.reduce((sum, u) => {
-      const effectValue = Number(u.effectValue);
-      const level = Number(u.level);
-      return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
-    }, 0);
-    
-    return Math.max(-0.95, efficiencyBonus); // Cap at -95% to prevent negative energy costs
-  }, [upgrades]);
-
   // Sync game state with loaded upgrades on initialization - IMPROVED VERSION
   useEffect(() => {
-    // Calculate total effect from all upgrades, properly categorized
-    const totalPointsPerSecondEffect = upgrades.reduce((sum, upgrade) => {
+    const totalUpgradeEffect = upgrades.reduce((sum, upgrade) => {
       const effectValue = Number(upgrade.effectValue);
       const level = Number(upgrade.level);
-      const validEffectValue = isNaN(effectValue) ? 0 : effectValue;
-      const validLevel = isNaN(level) ? 0 : level;
-      
-      // Only count upgrades that affect points per second (most upgrades)
-      const isPPSUpgrade = !['energy-capacity', 'energy-overflow', 'vibrational-harmony', 'transcendence', 
-                            'space-bending', 'earth-element', 'inner-strength', 'aura-purification', 
-                            'energy-mastery', 'air-element', 'psychic-awareness', 'divine-resonance', 
-                            'mindful-breathing', 'water-element', 'cosmic-consciousness', 'time-dilation', 
-                            'reality-shift'].includes(upgrade.id);
-      
-      return sum + (isPPSUpgrade ? validEffectValue * validLevel : 0);
+      return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
     }, 0);
-    
-    const totalOfflineBonusEffect = upgrades.reduce((sum, upgrade) => {
-      const effectValue = Number(upgrade.effectValue);
-      const level = Number(upgrade.level);
-      const validEffectValue = isNaN(effectValue) ? 0 : effectValue;
-      const validLevel = isNaN(level) ? 0 : level;
-      
-      // Only count offline bonus upgrades
-      const isOfflineUpgrade = ['cosmic-consciousness', 'time-dilation'].includes(upgrade.id);
-      
-      return sum + (isOfflineUpgrade ? validEffectValue * validLevel : 0);
-    }, 0);
-    
     const totalUpgradesPurchased = upgrades.reduce((sum, upgrade) => {
       const level = Number(upgrade.level);
       return sum + (isNaN(level) ? 0 : level);
     }, 0);
     
     setGameState(prev => {
-      const newPointsPerSecond = 1.0 + totalPointsPerSecondEffect;
-      const newOfflineBonus = totalOfflineBonusEffect;
+      const newPointsPerSecond = 1.0 + totalUpgradeEffect;
       const newUpgradesPurchased = totalUpgradesPurchased;
       
       console.log('Upgrade sync check:', {
         currentPPS: prev.pointsPerSecond,
         newPPS: newPointsPerSecond,
-        currentOfflineBonus: prev.offlineEfficiencyBonus,
-        newOfflineBonus: newOfflineBonus,
         currentUpgrades: prev.upgradesPurchased,
         newUpgrades: newUpgradesPurchased,
         currentPoints: prev.divinePoints,
@@ -2664,11 +2575,10 @@ export const DivineMiningGame: React.FC = () => {
       
       if (isFreshStart && !hasValidSavedData) {
         console.log('🔄 Fresh start detected, applying upgrade calculations');
-        console.log(`PPS ${prev.pointsPerSecond} -> ${newPointsPerSecond}, Offline Bonus ${prev.offlineEfficiencyBonus} -> ${newOfflineBonus}, Upgrades ${prev.upgradesPurchased} -> ${newUpgradesPurchased}`);
+        console.log(`PPS ${prev.pointsPerSecond} -> ${newPointsPerSecond}, Upgrades ${prev.upgradesPurchased} -> ${newUpgradesPurchased}`);
         return {
           ...prev,
           pointsPerSecond: newPointsPerSecond,
-          offlineEfficiencyBonus: newOfflineBonus,
           upgradesPurchased: newUpgradesPurchased
         };
       } else {
@@ -2685,33 +2595,6 @@ export const DivineMiningGame: React.FC = () => {
       setHasLoadedSavedData(true);
     }
   }, [gameState.divinePoints, hasLoadedSavedData]);
-
-  // Auto-detect and fix loading issues
-  useEffect(() => {
-    if (isInitialLoadComplete && !isLoading) {
-      // Check for common loading issues
-      const issues = [];
-      
-      if (upgrades.length === 0) {
-        issues.push('No upgrades loaded');
-      }
-      
-      if (gameState.pointsPerSecond <= 1.0 && upgrades.some(u => u.level > 0)) {
-        issues.push('Upgrade effects not applied to PPS');
-      }
-      
-      if (issues.length > 0) {
-        console.warn('⚠️ Auto-detected loading issues:', issues);
-        showSystemNotification(
-          'Loading Issues Detected', 
-          `Issues found: ${issues.join(', ')}. Use the RELOAD UPGRADES button to fix.`, 
-          'warning'
-        );
-      } else {
-        console.log('✅ Auto-check: All systems appear to be loading correctly');
-      }
-    }
-  }, [isInitialLoadComplete, isLoading, upgrades, gameState.pointsPerSecond, showSystemNotification]);
 
   // CRITICAL FIX: Prevent data reversion by ensuring saved data is preserved
   useEffect(() => {
@@ -2815,35 +2698,14 @@ export const DivineMiningGame: React.FC = () => {
 
       // Load upgrades from localStorage with validation
       if (parsedState.upgrades && Array.isArray(parsedState.upgrades)) {
-        const validatedUpgrades = parsedState.upgrades.map((upgrade: any) => {
-          // Ensure all required fields exist
-          const validatedUpgrade = {
-            id: upgrade.id || 'unknown',
-            name: upgrade.name || 'Unknown Upgrade',
-            level: Math.max(0, Math.min(sanitizeNumber(upgrade.level, 0), upgrade.maxLevel || 50)),
-            effect: upgrade.effect || '+0 effect',
-            baseCost: Math.max(1, sanitizeNumber(upgrade.baseCost, 25)),
-            costMultiplier: Math.max(1.01, sanitizeNumber(upgrade.costMultiplier, 1.12)),
-            effectValue: sanitizeNumber(upgrade.effectValue, 0),
-            category: upgrade.category || 'chakra',
-            description: upgrade.description || 'An upgrade',
-            requires: upgrade.requires || undefined,
-            detailedDescription: upgrade.detailedDescription || upgrade.description || 'An upgrade',
-            benefits: upgrade.benefits || ['No benefits listed'],
-            tips: upgrade.tips || ['No tips available'],
-            unlockProgress: Math.max(0, Math.min(100, upgrade.unlockProgress || 0)),
-            maxLevel: Math.max(1, upgrade.maxLevel || 50),
-            unlockReward: upgrade.unlockReward || 'No reward'
-          };
-          
-          return validatedUpgrade;
-        });
-        
-        console.log('Loaded and validated upgrades from localStorage:', validatedUpgrades);
+        const validatedUpgrades = parsedState.upgrades.map((upgrade: any) => ({
+          ...upgrade,
+          level: sanitizeNumber(upgrade.level, 0),
+          effectValue: sanitizeNumber(upgrade.effectValue, 0),
+          baseCost: sanitizeNumber(upgrade.baseCost, 25),
+          costMultiplier: sanitizeNumber(upgrade.costMultiplier, 1.12)
+        }));
         setUpgrades(validatedUpgrades);
-      } else {
-        console.log('No upgrades found in localStorage, using default upgrades');
-        setUpgrades(getInitialUpgrades());
       }
 
       // Load achievements from localStorage
@@ -3035,40 +2897,11 @@ export const DivineMiningGame: React.FC = () => {
         miningExperienceToNext: sanitizeNumber(gameData.miningExperienceToNext, prev.miningExperienceToNext)
       }));
 
-      // Load upgrades and achievements from Supabase with validation
-      if (gameData.upgrades && Array.isArray(gameData.upgrades)) {
-        const validatedUpgrades = gameData.upgrades.map((upgrade: any) => {
-          // Ensure all required fields exist
-          const validatedUpgrade = {
-            id: upgrade.id || 'unknown',
-            name: upgrade.name || 'Unknown Upgrade',
-            level: Math.max(0, Math.min(upgrade.level || 0, upgrade.maxLevel || 50)),
-            effect: upgrade.effect || '+0 effect',
-            baseCost: Math.max(1, upgrade.baseCost || 25),
-            costMultiplier: Math.max(1.01, upgrade.costMultiplier || 1.12),
-            effectValue: upgrade.effectValue || 0,
-            category: upgrade.category || 'chakra',
-            description: upgrade.description || 'An upgrade',
-            requires: upgrade.requires || undefined,
-            detailedDescription: upgrade.detailedDescription || upgrade.description || 'An upgrade',
-            benefits: upgrade.benefits || ['No benefits listed'],
-            tips: upgrade.tips || ['No tips available'],
-            unlockProgress: Math.max(0, Math.min(100, upgrade.unlockProgress || 0)),
-            maxLevel: Math.max(1, upgrade.maxLevel || 50),
-            unlockReward: upgrade.unlockReward || 'No reward'
-          };
-          
-          return validatedUpgrade;
-        });
-        
-        console.log('Loaded and validated upgrades from Supabase:', validatedUpgrades);
-        setUpgrades(validatedUpgrades);
-      } else {
-        console.log('No upgrades found in Supabase, using default upgrades');
-        setUpgrades(getInitialUpgrades());
+      // Load upgrades and achievements from Supabase
+      if (gameData.upgrades) {
+        setUpgrades(gameData.upgrades);
       }
-      
-      if (gameData.achievements && Array.isArray(gameData.achievements)) {
+      if (gameData.achievements) {
         setAchievements(gameData.achievements);
       }
 
@@ -3195,7 +3028,6 @@ export const DivineMiningGame: React.FC = () => {
   useEffect(() => {
     if (user && !isInitialLoadComplete) {
       console.log('🚀 Starting initial data load...');
-      setLoadingMessage('Starting data load...');
       
       // Check for reset flag - if present, skip loading old data
       if (user.telegram_id) {
@@ -3206,7 +3038,6 @@ export const DivineMiningGame: React.FC = () => {
           console.log('🔄 Reset flag detected, skipping old data load for fresh start');
           localStorage.removeItem(`RESET_FLAG_${telegramId}`);
           setIsInitialLoadComplete(true);
-          setIsLoading(false);
           return;
         }
         
@@ -3219,7 +3050,6 @@ export const DivineMiningGame: React.FC = () => {
           const newUrl = window.location.pathname + window.location.hash;
           window.history.replaceState({}, document.title, newUrl);
           setIsInitialLoadComplete(true);
-          setIsLoading(false);
           return;
         }
       }
@@ -3228,14 +3058,12 @@ export const DivineMiningGame: React.FC = () => {
       if (user.telegram_id) {
         const telegramId = String(user.telegram_id);
         console.log('🔄 Checking for data migration...');
-        setLoadingMessage('Checking data migration...');
         const migrationResult = migrateToUserSpecificKeys(telegramId);
         if (migrationResult.migrated > 0) {
           console.log(`✅ Migrated ${migrationResult.migrated} data items to user-specific keys`);
         }
         
         // Validate data isolation
-        setLoadingMessage('Validating data isolation...');
         const validation = validateUserDataIsolation(telegramId);
         if (!validation.isValid) {
           console.warn('⚠️ Data isolation validation failed:', validation.issues);
@@ -3248,17 +3076,9 @@ export const DivineMiningGame: React.FC = () => {
         }
       }
       
-      setLoadingMessage('Loading game data...');
       loadDivineMiningState().then(() => {
         setIsInitialLoadComplete(true);
-        setIsLoading(false);
-        setLoadingMessage('');
         console.log('✅ Initial data load completed');
-      }).catch((error) => {
-        console.error('❌ Error during initial load:', error);
-        setIsLoading(false);
-        setLoadingMessage('Load failed - starting fresh');
-        setIsInitialLoadComplete(true);
       });
     }
   }, [user, isInitialLoadComplete]);
@@ -3365,21 +3185,6 @@ export const DivineMiningGame: React.FC = () => {
       return;
     }
 
-    // Validate upgrade can be purchased
-    if (!isUpgradeAvailable(upgrade)) {
-      console.error('Upgrade not available:', upgradeId);
-      setPurchasingUpgrade(null);
-      showSystemNotification('Upgrade Locked', 'This upgrade requires previous upgrades to be purchased first!', 'warning');
-      return;
-    }
-
-    if (isUpgradeMaxed(upgrade)) {
-      console.error('Upgrade already maxed:', upgradeId);
-      setPurchasingUpgrade(null);
-      showSystemNotification('Upgrade Maxed', 'This upgrade has reached its maximum level!', 'info');
-      return;
-    }
-
     const baseCost = Number(upgrade.baseCost);
     const costMultiplier = Number(upgrade.costMultiplier);
     const level = Number(upgrade.level);
@@ -3394,10 +3199,6 @@ export const DivineMiningGame: React.FC = () => {
     const validDivinePoints = isNaN(divinePoints) ? 100 : divinePoints;
     
     if (validDivinePoints >= cost) {
-      // Calculate the effect this upgrade will provide
-      const effectValue = Number(upgrade.effectValue);
-      const validEffectValue = isNaN(effectValue) ? 0 : effectValue;
-      
       setGameState(prev => {
         let newState = {
           ...prev,
@@ -3405,46 +3206,27 @@ export const DivineMiningGame: React.FC = () => {
           upgradesPurchased: prev.upgradesPurchased + 1
         };
         
-        // Handle different types of upgrades with proper effect application
-        if (upgradeId === 'energy-capacity' || upgradeId === 'energy-overflow' || upgradeId === 'vibrational-harmony' || upgradeId === 'transcendence' || upgradeId === 'space-bending' || upgradeId === 'earth-element') {
-          // Energy capacity upgrades
+        // Handle special upgrades
+        if (upgradeId === 'energy-capacity') {
           newState = {
             ...newState,
-            maxEnergy: prev.maxEnergy + validEffectValue,
-            currentEnergy: Math.min(prev.currentEnergy, prev.maxEnergy + validEffectValue)
+            maxEnergy: prev.maxEnergy + upgrade.effectValue,
+            currentEnergy: Math.min(prev.currentEnergy, prev.maxEnergy + upgrade.effectValue)
           };
-        } else if (upgradeId === 'inner-strength' || upgradeId === 'aura-purification' || upgradeId === 'energy-mastery' || upgradeId === 'air-element') {
-          // Energy efficiency upgrades (negative effect values)
-          // These are handled in the mining calculation, no immediate state change needed
-          console.log(`Applied energy efficiency upgrade: ${upgrade.name} with effect ${validEffectValue}`);
-        } else if (upgradeId === 'psychic-awareness' || upgradeId === 'divine-resonance' || upgradeId === 'mindful-breathing' || upgradeId === 'water-element') {
-          // Energy regeneration upgrades
-          // These are handled in the energy regeneration calculation, no immediate state change needed
-          console.log(`Applied energy regeneration upgrade: ${upgrade.name} with effect ${validEffectValue}`);
-        } else if (upgradeId === 'cosmic-consciousness' || upgradeId === 'time-dilation') {
-          // Offline bonus upgrades
+        } else if (upgradeId === 'energy-overflow') {
           newState = {
             ...newState,
-            offlineEfficiencyBonus: prev.offlineEfficiencyBonus + validEffectValue
+            maxEnergy: prev.maxEnergy + upgrade.effectValue,
+            currentEnergy: Math.min(prev.currentEnergy, prev.maxEnergy + upgrade.effectValue)
           };
-        } else if (upgradeId === 'reality-shift') {
-          // Global bonus upgrades
-          // This affects all bonuses, handled in calculations
-          console.log(`Applied global bonus upgrade: ${upgrade.name} with effect ${validEffectValue}`);
-        } else {
-          // Default: Points per second upgrades (most upgrades fall here)
+        } else if (upgradeId.startsWith('mining-') || upgradeId === 'auto-miner' || upgradeId === 'divine-boost' || 
+                   upgradeId === 'quantum-miner' || upgradeId === 'cosmic-miner' || upgradeId === 'stellar-miner' || 
+                   upgradeId === 'galactic-miner') {
           newState = {
             ...newState,
-            pointsPerSecond: prev.pointsPerSecond + validEffectValue
+            pointsPerSecond: prev.pointsPerSecond + upgrade.effectValue
           };
         }
-        
-        console.log(`Upgrade applied: ${upgrade.name}`, {
-          effectValue: validEffectValue,
-          newPPS: newState.pointsPerSecond,
-          newMaxEnergy: newState.maxEnergy,
-          newOfflineBonus: newState.offlineEfficiencyBonus
-        });
         
         return newState;
       });
@@ -3476,19 +3258,6 @@ export const DivineMiningGame: React.FC = () => {
       setTimeout(() => {
         saveDivineMiningState();
         setPurchasingUpgrade(null); // Clear loading state after save
-        
-        // Dispatch custom event for TaskCenter to detect upgrade purchase
-        const upgradeEvent = new CustomEvent('upgradePurchased', {
-          detail: {
-            upgradeId: upgradeId,
-            upgradeName: upgrade.name,
-            level: upgrade.level + 1,
-            cost: cost,
-            timestamp: Date.now()
-          }
-        });
-        window.dispatchEvent(upgradeEvent);
-        console.log('🎉 Dispatched upgrade purchase event for TaskCenter');
       }, 100);
       
       console.log(`Purchased upgrade: ${upgrade.name} for ${cost} points`);
@@ -3496,7 +3265,7 @@ export const DivineMiningGame: React.FC = () => {
       setPurchasingUpgrade(null); // Clear loading state on insufficient points
       showSystemNotification('Insufficient Points', 'Not enough points for this upgrade!', 'warning');
     }
-  }, [upgrades, gameState.divinePoints, isUpgradeAvailable, isUpgradeMaxed, showUpgradeNotification, showSystemNotification, saveDivineMiningState]);
+  }, [upgrades, gameState.divinePoints, showUpgradeNotification, showSystemNotification]);
 
   // Update toggle mining function to save to both systems
   const toggleMining = useCallback(() => {
@@ -3547,7 +3316,25 @@ export const DivineMiningGame: React.FC = () => {
       setGameState(prev => {
         // Check if we have enough energy to continue mining
         const boostedRate = getEnhancedMiningRate();
-        const totalEfficiencyBonus = getEnergyEfficiencyBonus();
+        const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+        const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+        const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+        const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => {
+          const effectValue = Number(u.effectValue);
+          const level = Number(u.level);
+          return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
+        }, 0);
+        const sustainBonus = energySustainUpgrades.reduce((sum, u) => {
+          const effectValue = Number(u.effectValue);
+          const level = Number(u.level);
+          return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
+        }, 0);
+        const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => {
+          const effectValue = Number(u.effectValue);
+          const level = Number(u.level);
+          return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
+        }, 0);
+        const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
         
         const baseEnergyCost = 0.8;
         const baseRate = Number(prev.pointsPerSecond);
@@ -3612,13 +3399,26 @@ export const DivineMiningGame: React.FC = () => {
 
     const energyRegenInterval = setInterval(() => {
       setGameState(prev => {
-        const energyRegen = getEnergyRegenerationRate();
+        const energyRegenUpgrades = upgrades.filter(u => u.id === 'energy-regen');
+        const energyBurstUpgrades = upgrades.filter(u => u.id === 'energy-burst');
+        const regenBonus = energyRegenUpgrades.reduce((sum, u) => {
+          const effectValue = Number(u.effectValue);
+          const level = Number(u.level);
+          return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
+        }, 0);
+        const burstBonus = energyBurstUpgrades.reduce((sum, u) => {
+          const effectValue = Number(u.effectValue);
+          const level = Number(u.level);
+          return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
+        }, 0);
+        const baseRegen = 0.3;
+        const totalRegen = baseRegen + regenBonus + burstBonus;
         
         const currentEnergy = Number(prev.currentEnergy);
         const maxEnergy = Number(prev.maxEnergy);
         const validCurrentEnergy = isNaN(currentEnergy) ? 1000 : currentEnergy;
         const validMaxEnergy = isNaN(maxEnergy) ? 1000 : maxEnergy;
-        const newEnergy = Math.min(validMaxEnergy, validCurrentEnergy + energyRegen);
+        const newEnergy = Math.min(validMaxEnergy, validCurrentEnergy + totalRegen);
         
         return {
           ...prev,
@@ -3629,7 +3429,7 @@ export const DivineMiningGame: React.FC = () => {
     }, 1000); // Regenerate energy every second
 
     return () => clearInterval(energyRegenInterval);
-  }, [gameState.currentEnergy, gameState.maxEnergy, getEnergyRegenerationRate]);
+  }, [gameState.currentEnergy, gameState.maxEnergy, upgrades]);
 
   // Auto-mining effect
   useEffect(() => {
@@ -3642,7 +3442,25 @@ export const DivineMiningGame: React.FC = () => {
     
     // Check if we have enough energy to start auto-mining
     const boostedRate = getEnhancedMiningRate();
-    const totalEfficiencyBonus = getEnergyEfficiencyBonus();
+    const energyEfficiencyUpgrades = upgrades.filter(u => u.id === 'energy-efficiency');
+    const energySustainUpgrades = upgrades.filter(u => u.id === 'energy-sustain');
+    const energyMasteryUpgrades = upgrades.filter(u => u.id === 'energy-mastery');
+    const efficiencyBonus = energyEfficiencyUpgrades.reduce((sum, u) => {
+      const effectValue = Number(u.effectValue);
+      const level = Number(u.level);
+      return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
+    }, 0);
+    const sustainBonus = energySustainUpgrades.reduce((sum, u) => {
+      const effectValue = Number(u.effectValue);
+      const level = Number(u.level);
+      return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
+    }, 0);
+    const masteryBonus = energyMasteryUpgrades.reduce((sum, u) => {
+      const effectValue = Number(u.effectValue);
+      const level = Number(u.level);
+      return sum + ((isNaN(effectValue) ? 0 : effectValue) * (isNaN(level) ? 0 : level));
+    }, 0);
+    const totalEfficiencyBonus = Math.max(-0.95, efficiencyBonus + sustainBonus + masteryBonus);
     
     const baseEnergyCost = 0.8;
     const baseRate = Number(gameState.pointsPerSecond);
@@ -3662,7 +3480,7 @@ export const DivineMiningGame: React.FC = () => {
         isMining: true
       }));
     }
-  }, [gameState.currentEnergy, gameState.isMining, getEnhancedMiningRate, getEnergyEfficiencyBonus]);
+  }, [gameState.currentEnergy, gameState.isMining, upgrades, getEnhancedMiningRate]);
 
   // Enhanced number formatting
   const formatNumber = useCallback((num: number): string => {
@@ -3728,115 +3546,6 @@ export const DivineMiningGame: React.FC = () => {
     setUpgradeFilter('all');
   }, []);
 
-  // Function to force reload upgrades
-  const forceReloadUpgrades = useCallback(() => {
-    console.log('🔄 Force reloading upgrades...');
-    setLoadingMessage('Reloading upgrades...');
-    
-    // Clear current upgrades
-    setUpgrades([]);
-    
-    // Reload from localStorage first
-    const userUpgradesKey = getUserSpecificKey(UPGRADES_KEY);
-    const savedUpgrades = localStorage.getItem(userUpgradesKey);
-    
-    if (savedUpgrades) {
-      try {
-        const parsed = JSON.parse(savedUpgrades);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const validatedUpgrades = parsed.map(upgrade => ({
-            id: upgrade.id || 'unknown',
-            name: upgrade.name || 'Unknown Upgrade',
-            level: Math.max(0, Math.min(upgrade.level || 0, upgrade.maxLevel || 50)),
-            effect: upgrade.effect || '+0 effect',
-            baseCost: Math.max(1, upgrade.baseCost || 25),
-            costMultiplier: Math.max(1.01, upgrade.costMultiplier || 1.12),
-            effectValue: upgrade.effectValue || 0,
-            category: upgrade.category || 'chakra',
-            description: upgrade.description || 'An upgrade',
-            requires: upgrade.requires || undefined,
-            detailedDescription: upgrade.detailedDescription || upgrade.description || 'An upgrade',
-            benefits: upgrade.benefits || ['No benefits listed'],
-            tips: upgrade.tips || ['No tips available'],
-            unlockProgress: Math.max(0, Math.min(100, upgrade.unlockProgress || 0)),
-            maxLevel: Math.max(1, upgrade.maxLevel || 50),
-            unlockReward: upgrade.unlockReward || 'No reward'
-          }));
-          
-          setUpgrades(validatedUpgrades);
-          console.log('✅ Upgrades reloaded from localStorage:', validatedUpgrades);
-          showSystemNotification('Upgrades Reloaded', 'Successfully reloaded upgrades from localStorage', 'success');
-        } else {
-          throw new Error('Invalid upgrade data format');
-        }
-      } catch (error) {
-        console.error('Error reloading upgrades from localStorage:', error);
-        // Fall back to default upgrades
-        const defaultUpgrades = getInitialUpgrades();
-        setUpgrades(defaultUpgrades);
-        console.log('✅ Loaded default upgrades as fallback:', defaultUpgrades);
-        showSystemNotification('Default Upgrades Loaded', 'Loaded default upgrades due to data corruption', 'warning');
-      }
-    } else {
-      // No saved upgrades, load defaults
-      const defaultUpgrades = getInitialUpgrades();
-      setUpgrades(defaultUpgrades);
-      console.log('✅ Loaded default upgrades (no saved data):', defaultUpgrades);
-      showSystemNotification('Default Upgrades Loaded', 'No saved upgrades found, loaded defaults', 'info');
-    }
-    
-    setLoadingMessage('');
-  }, [getUserSpecificKey, getInitialUpgrades, showSystemNotification]);
-
-  // Debug function to verify upgrade system
-  const debugUpgradeSystem = useCallback(() => {
-    console.log('🔍 Upgrade System Debug Report:');
-    console.log('Current Game State:', {
-      divinePoints: gameState.divinePoints,
-      pointsPerSecond: gameState.pointsPerSecond,
-      upgradesPurchased: gameState.upgradesPurchased,
-      currentEnergy: gameState.currentEnergy,
-      maxEnergy: gameState.maxEnergy,
-      offlineEfficiencyBonus: gameState.offlineEfficiencyBonus
-    });
-    
-    console.log('Upgrade Calculations:', {
-      energyRegenRate: getEnergyRegenerationRate(),
-      energyEfficiencyBonus: getEnergyEfficiencyBonus(),
-      enhancedMiningRate: getEnhancedMiningRate(),
-      totalUpgrades: upgrades.length,
-      availableUpgrades: getFilteredUpgrades().filter(u => isUpgradeAvailable(u) && !isUpgradeMaxed(u)).length,
-      maxedUpgrades: upgrades.filter(u => isUpgradeMaxed(u)).length
-    });
-    
-    console.log('Upgrade Details:', upgrades.map(u => ({
-      id: u.id,
-      name: u.name,
-      level: u.level,
-      maxLevel: u.maxLevel,
-      effectValue: u.effectValue,
-      isAvailable: isUpgradeAvailable(u),
-      isMaxed: isUpgradeMaxed(u),
-      cost: getUpgradeCost(u)
-    })));
-    
-    // Check for common loading issues
-    const issues = [];
-    if (upgrades.length === 0) issues.push('No upgrades loaded');
-    if (gameState.pointsPerSecond <= 1.0) issues.push('No upgrade effects applied to PPS');
-    if (gameState.offlineEfficiencyBonus <= 0) issues.push('No offline bonus upgrades detected');
-    
-    if (issues.length > 0) {
-      console.warn('⚠️ Potential loading issues detected:', issues);
-      showSystemNotification('Loading Issues Found', `Issues: ${issues.join(', ')}`, 'warning');
-    } else {
-      console.log('✅ All upgrade systems appear to be working correctly');
-      showSystemNotification('System Healthy', 'All upgrade systems working correctly', 'success');
-    }
-    
-    showSystemNotification('Debug Complete', 'Check console for upgrade system analysis', 'info');
-  }, [gameState, upgrades, getEnergyRegenerationRate, getEnergyEfficiencyBonus, getEnhancedMiningRate, isUpgradeAvailable, isUpgradeMaxed, getUpgradeCost, getFilteredUpgrades, showSystemNotification]);
-
   // Add keyboard shortcut for reset button visibility
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -3867,26 +3576,6 @@ export const DivineMiningGame: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center space-y-4 overflow-y-auto game-scrollbar">
-      {/* Loading Screen */}
-      {isLoading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="bg-gradient-to-br from-gray-900/95 to-black/95 backdrop-blur-xl border border-cyan-500/30 rounded-xl shadow-[0_0_40px_rgba(6,182,212,0.3)] p-8 max-w-md w-full mx-4">
-            <div className="text-center space-y-4">
-              <div className="w-16 h-16 mx-auto border-4 border-cyan-500/30 border-t-cyan-400 rounded-full animate-spin"></div>
-              <div className="text-cyan-400 font-mono font-bold text-lg tracking-wider">
-                LOADING DIVINE MINING
-              </div>
-              <div className="text-gray-300 font-mono text-sm">
-                {loadingMessage}
-              </div>
-              <div className="text-gray-500 font-mono text-xs">
-                Please wait while we initialize your spiritual journey...
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      
       {/* Compact Centered Divine Mining Card */}
       <div className="relative w-full max-w-xl overflow-hidden game-card-frame">
         {/* Compact Header */}
@@ -4392,39 +4081,6 @@ export const DivineMiningGame: React.FC = () => {
                     <div className="text-purple-400 font-bold">AVAILABLE</div>
                     <div className="text-purple-300">{getFilteredUpgrades().filter(u => isUpgradeAvailable(u) && !isUpgradeMaxed(u)).length}</div>
                   </div>
-                </div>
-                <div className="mt-2 pt-2 border-t border-gray-600/20">
-                  <div className="grid grid-cols-3 gap-2 text-xs font-mono">
-                    <div className="text-center">
-                      <div className="text-green-400 font-bold">PPS BONUS</div>
-                      <div className="text-green-300">+{((gameState.pointsPerSecond - 1.0) * 100).toFixed(1)}%</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-blue-400 font-bold">ENERGY REGEN</div>
-                      <div className="text-blue-300">+{getEnergyRegenerationRate().toFixed(1)}/s</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-yellow-400 font-bold">OFFLINE BONUS</div>
-                      <div className="text-yellow-300">+{(gameState.offlineEfficiencyBonus * 100).toFixed(1)}%</div>
-                    </div>
-                  </div>
-                </div>
-                {/* Debug Buttons */}
-                <div className="mt-3 pt-2 border-t border-gray-600/20 text-center space-y-2">
-                  <button
-                    onClick={debugUpgradeSystem}
-                    className="px-3 py-1 rounded text-xs font-mono bg-gray-700/50 text-gray-300 border border-gray-600 hover:bg-gray-600/50 hover:text-gray-200 transition-all duration-300"
-                    title="Debug upgrade system and check console for detailed analysis"
-                  >
-                    🔍 DEBUG UPGRADES
-                  </button>
-                  <button
-                    onClick={forceReloadUpgrades}
-                    className="px-3 py-1 rounded text-xs font-mono bg-blue-700/50 text-blue-300 border border-blue-600 hover:bg-blue-600/50 hover:text-blue-200 transition-all duration-300"
-                    title="Force reload upgrades from localStorage"
-                  >
-                    🔄 RELOAD UPGRADES
-                  </button>
                 </div>
               </div>
             </div>

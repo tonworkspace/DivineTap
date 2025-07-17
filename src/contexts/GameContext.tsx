@@ -39,7 +39,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   // Points are now managed by DivineMiningGame - this is just for display
   const [points, setPoints] = useState(() => {
     const userId = user?.id ? user.id.toString() : undefined;
-    const userPointsKey = getUserSpecificKey('divineMiningPoints', userId);
+    const userPointsKey = getUserSpecificKey('spiritualEssencePoints', userId);
     const saved = localStorage.getItem(userPointsKey);
     return saved ? parseInt(saved, 10) : 100;
   });
@@ -62,7 +62,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
   useEffect(() => {
     const syncWithDivineMining = () => {
       const userId = user?.id ? user.id.toString() : undefined;
-      const userPointsKey = getUserSpecificKey('divineMiningPoints', userId);
+      const userPointsKey = getUserSpecificKey('spiritualEssencePoints', userId);
       const userGemsKey = getUserSpecificKey('divineMiningGems', userId);
       const userBoostsKey = getUserSpecificKey('divineMiningBoosts', userId);
       
@@ -72,24 +72,33 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
       
       if (savedPoints) {
         const newPoints = parseInt(savedPoints, 10);
-        if (newPoints !== points) {
-          setPoints(newPoints);
-        }
+        setPoints(currentPoints => {
+          if (newPoints !== currentPoints) {
+            return newPoints;
+          }
+          return currentPoints;
+        });
       }
       
       if (savedGems) {
         const newGems = parseInt(savedGems, 10);
-        if (newGems !== gems) {
-          setGems(newGems);
-        }
+        setGems(currentGems => {
+          if (newGems !== currentGems) {
+            return newGems;
+          }
+          return currentGems;
+        });
       }
       
       if (savedBoosts) {
         try {
           const newBoosts = JSON.parse(savedBoosts);
-          if (JSON.stringify(newBoosts) !== JSON.stringify(activeBoosts)) {
-            setActiveBoosts(newBoosts);
-          }
+          setActiveBoosts(currentBoosts => {
+            if (JSON.stringify(newBoosts) !== JSON.stringify(currentBoosts)) {
+              return newBoosts;
+            }
+            return currentBoosts;
+          });
         } catch (error) {
           console.error('Error parsing boosts:', error);
         }
@@ -105,7 +114,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     // Also listen for storage events (when localStorage changes in other tabs)
     const handleStorageChange = (e: StorageEvent) => {
       const userId = user?.id ? user.id.toString() : undefined;
-      const userPointsKey = getUserSpecificKey('divineMiningPoints', userId);
+      const userPointsKey = getUserSpecificKey('spiritualEssencePoints', userId);
       const userGemsKey = getUserSpecificKey('divineMiningGems', userId);
       const userBoostsKey = getUserSpecificKey('divineMiningBoosts', userId);
       
@@ -120,7 +129,7 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
       clearInterval(syncInterval);
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [points, gems, activeBoosts, user?.id]);
+  }, [user?.id]);
 
   // Save gems to localStorage whenever state changes
   useEffect(() => {

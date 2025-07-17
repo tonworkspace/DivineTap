@@ -10,6 +10,7 @@ import {
   getDivinePointsStats,
   // updateGenericUsernames
 } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 import './DivinePointsLeaderboard.css';
 
 interface DivinePlayer {
@@ -174,24 +175,36 @@ export const DivinePointsLeaderboard: React.FC = () => {
         console.log('Loading real leaderboard data...');
         const allTimeData = await getDivinePointsLeaderboard(100);
         console.log('All time data:', allTimeData);
+        console.log('All time data length:', allTimeData?.length);
+        
         const dailyData = await getDivinePointsLeaderboardByPeriod('daily', 50);
+        console.log('Daily data:', dailyData);
+        console.log('Daily data length:', dailyData?.length);
+        
         const weeklyData = await getDivinePointsLeaderboardByPeriod('weekly', 50);
+        console.log('Weekly data:', weeklyData);
+        console.log('Weekly data length:', weeklyData?.length);
+        
         const monthlyData = await getDivinePointsLeaderboardByPeriod('monthly', 50);
+        console.log('Monthly data:', monthlyData);
+        console.log('Monthly data length:', monthlyData?.length);
         
         // Load global stats
         const globalStats = await getDivinePointsStats();
+        console.log('Global stats:', globalStats);
         
         // Get user rank if logged in
         let userRankData = null;
         if (user?.id && userDivinePoints > 0) {
           userRankData = await getUserDivinePointsRank(user.id);
+          console.log('User rank data:', userRankData);
         }
 
         setLeaderboardData({
-          topPlayers: allTimeData,
-          dailyWinners: dailyData,
-          weeklyWinners: weeklyData,
-          monthlyWinners: monthlyData,
+          topPlayers: allTimeData || [],
+          dailyWinners: dailyData || [],
+          weeklyWinners: weeklyData || [],
+          monthlyWinners: monthlyData || [],
           totalPlayers: globalStats.totalPlayers,
           lastUpdated: Date.now()
         });
@@ -335,7 +348,6 @@ export const DivinePointsLeaderboard: React.FC = () => {
           </div>
           
           <div className="flex gap-2">
-           
             <button
               onClick={refreshLeaderboard}
               disabled={isRefreshing}
@@ -346,6 +358,61 @@ export const DivinePointsLeaderboard: React.FC = () => {
               }`}
             >
               <BiRefresh className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+            
+            {/* Debug button to force save current game state */}
+            <button
+              onClick={async () => {
+                try {
+                  const savedGameState = localStorage.getItem('divineMiningGame');
+                  if (savedGameState) {
+                    const gameState = JSON.parse(savedGameState);
+                    console.log('Current game state:', gameState);
+                    
+                    // Force save to Supabase
+                    const { user } = useAuth();
+                    if (user?.telegram_id) {
+                      const { data: userData, error: userError } = await supabase
+                        .from('users')
+                        .select('id')
+                        .eq('telegram_id', user.telegram_id)
+                        .single();
+
+                      if (userError || !userData) {
+                        console.error('Error fetching user for debug save:', userError);
+                        return;
+                      }
+
+                      const stateToSave = {
+                        user_id: userData.id,
+                        game_data: gameState,
+                        last_updated: new Date().toISOString()
+                      };
+
+                      const { error } = await supabase
+                        .from('user_game_data')
+                        .upsert(stateToSave, {
+                          onConflict: 'user_id'
+                        });
+
+                      if (error) throw error;
+                      
+                      console.log('Debug: Game state saved to Supabase');
+                      alert('Game state saved to database!');
+                      
+                      // Refresh leaderboard
+                      await refreshLeaderboard();
+                    }
+                  }
+                } catch (error) {
+                  console.error('Debug save error:', error);
+                  alert('Error saving game state: ' + (error instanceof Error ? error.message : String(error)));
+                }
+              }}
+              className="p-2 rounded-lg bg-green-500/20 border border-green-400 text-green-300 hover:bg-green-500/30 transition-all duration-300"
+              title="Force save current game state to database"
+            >
+              💾
             </button>
           </div>
         </div>
