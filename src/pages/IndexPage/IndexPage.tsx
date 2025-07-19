@@ -11,7 +11,7 @@ import { ReferralSystem } from '@/components/ReferralSystem';
 // import { isValidAddress } from '@/utility/address';
 // import { Address } from '@ton/core';
 import { useReferralIntegration } from '@/hooks/useReferralIntegration';
-import { GameProvider } from '@/contexts/GameContext';
+import { GameProvider, useGameContext } from '@/contexts/GameContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { 
   GiCrystalBall, 
@@ -20,6 +20,9 @@ import {
   GiDiamonds
 } from 'react-icons/gi';
 import { BiHome } from 'react-icons/bi';
+// Import gem sync test utilities for debugging
+import '@/utils/gemSyncTest';
+
 
 // interface GameState {
 //   divinePoints: number;
@@ -39,6 +42,64 @@ import { BiHome } from 'react-icons/bi';
 //   baseCost: number;
 //   costMultiplier: number;
 // }
+
+// Header component that uses GameContext
+const GameHeader: FC<{ user: any; currentTab: string }> = ({ user, currentTab }) => {
+  const { gems } = useGameContext();
+  
+  return (
+    <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 mb-2 shadow-[0_0_30px_rgba(0,255,255,0.1)] overflow-hidden game-card-frame">
+      {/* Futuristic Corner Accents */}
+      <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400 corner-accent"></div>
+      <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400 corner-accent"></div>
+      <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400 corner-accent"></div>
+      <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400 corner-accent"></div>
+      
+      {/* Dynamic Background Glow */}
+      <div className="absolute inset-0 rounded-xl transition-all duration-1000 bg-gradient-to-br from-cyan-500/10 via-blue-500/5 to-purple-500/10 animate-pulse"></div>
+      
+      {/* Single Line Content */}
+      <div className="relative z-10 flex items-center justify-between space-x-2">
+        {/* Status + Title */}
+        <div className="flex items-center space-x-1.5">
+          <div className="w-2 h-2 bg-gradient-to-r from-cyan-400 to-cyan-500 rounded-full animate-pulse shadow-lg shadow-cyan-400/50"></div>
+          <span className="text-cyan-400 font-mono font-bold text-[10px] tracking-wider">MINING</span>
+          <div className="w-px h-3 bg-gradient-to-b from-transparent via-cyan-500/50 to-transparent"></div>
+          <div className="text-cyan-300 font-mono text-[9px] font-medium">
+            {currentTab === 'zodiac' ? 'ACTIVE' : 'ONLINE'}
+          </div>
+        </div>
+        
+        {/* Stats Section */}
+        <div className="flex items-center space-x-3">
+          {/* Gems */}
+          <div className="flex items-center space-x-1">
+            <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></div>
+            <span className="text-purple-400 font-mono font-bold text-[9px] uppercase">💎</span>
+            <span className="text-purple-300 font-mono font-bold text-sm">
+              {gems >= 1000 ? `${(gems / 1000).toFixed(1)}K` : gems.toString()}
+            </span>
+          </div>
+          
+          {/* Separator */}
+          <div className="w-px h-3 bg-gradient-to-b from-transparent via-gray-500/50 to-transparent"></div>
+        </div>
+        
+        {/* User Badge */}
+        {user?.username && (
+          <div className="flex items-center space-x-1 bg-gradient-to-r from-gray-900/80 to-black/80 rounded-full px-1.5 py-0.5 border border-cyan-500/30 backdrop-blur-sm">
+            <div className="w-4 h-4 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-full flex items-center justify-center text-[10px] font-bold text-black shadow-lg">
+              {user.username.charAt(0).toUpperCase()}
+            </div>
+            <span className="text-cyan-300 font-mono font-bold text-[10px] truncate max-w-[100px]">
+              {user.username}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 export const IndexPage: FC = () => {
   const { user, isLoading, error } = useAuth();
@@ -433,61 +494,7 @@ export const IndexPage: FC = () => {
          <div className="flex-1 pb-20 px-4 pt-4 max-w-md mx-auto">
            
            {/* Ultra-Compact Cyberpunk Stats Header */}
-           <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-4 mb-2 shadow-[0_0_30px_rgba(0,255,255,0.1)] overflow-hidden game-card-frame">
-             {/* Futuristic Corner Accents */}
-             <div className="absolute top-0 left-0 w-3 h-3 border-l-2 border-t-2 border-cyan-400 corner-accent"></div>
-             <div className="absolute top-0 right-0 w-3 h-3 border-r-2 border-t-2 border-cyan-400 corner-accent"></div>
-             <div className="absolute bottom-0 left-0 w-3 h-3 border-l-2 border-b-2 border-cyan-400 corner-accent"></div>
-             <div className="absolute bottom-0 right-0 w-3 h-3 border-r-2 border-b-2 border-cyan-400 corner-accent"></div>
-             
-             {/* Dynamic Background Glow */}
-             <div className="absolute inset-0 rounded-xl transition-all duration-1000 bg-gradient-to-br from-cyan-500/10 via-blue-500/5 to-purple-500/10 animate-pulse"></div>
-             
-             {/* Single Line Content */}
-             <div className="relative z-10 flex items-center justify-between space-x-2">
-               {/* Status + Title */}
-               <div className="flex items-center space-x-1.5">
-                 <div className="w-2 h-2 bg-gradient-to-r from-cyan-400 to-cyan-500 rounded-full animate-pulse shadow-lg shadow-cyan-400/50"></div>
-                 <span className="text-cyan-400 font-mono font-bold text-[10px] tracking-wider">MINING</span>
-                 <div className="w-px h-3 bg-gradient-to-b from-transparent via-cyan-500/50 to-transparent"></div>
-                 <div className="text-cyan-300 font-mono text-[9px] font-medium">
-                   {currentTab === 'zodiac' ? 'ACTIVE' : 'ONLINE'}
-                 </div>
-               </div>
-               
-               {/* Stats Section */}
-               <div className="flex items-center space-x-3">
-                 {/* Gems */}
-                 <div className="flex items-center space-x-1">
-                   <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse"></div>
-                   <span className="text-purple-400 font-mono font-bold text-[9px] uppercase">💎</span>
-                   <span className="text-purple-300 font-mono font-bold text-sm">
-                     {(() => {
-                       const userGemsKey = user?.id ? `divineMiningGems_${user.id}` : 'divineMiningGems';
-                       const savedGems = localStorage.getItem(userGemsKey);
-                       const gems = savedGems ? parseInt(savedGems, 10) : 0;
-                       return gems >= 1000 ? `${(gems / 1000).toFixed(1)}K` : gems.toString();
-                     })()}
-                   </span>
-                 </div>
-                 
-                 {/* Separator */}
-                 <div className="w-px h-3 bg-gradient-to-b from-transparent via-gray-500/50 to-transparent"></div>
-               </div>
-               
-               {/* User Badge */}
-               {user?.username && (
-                 <div className="flex items-center space-x-1 bg-gradient-to-r from-gray-900/80 to-black/80 rounded-full px-1.5 py-0.5 border border-cyan-500/30 backdrop-blur-sm">
-                   <div className="w-4 h-4 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-full flex items-center justify-center text-[10px] font-bold text-black shadow-lg">
-                     {user.username.charAt(0).toUpperCase()}
-                   </div>
-                   <span className="text-cyan-300 font-mono font-bold text-[10px] truncate max-w-[100px]">
-                     {user.username}
-                   </span>
-                 </div>
-               )}
-             </div>
-           </div>
+           <GameHeader user={user} currentTab={currentTab} />
 
 
           {currentTab === 'zodiac' && <DivineMiningGame />}
@@ -501,7 +508,7 @@ export const IndexPage: FC = () => {
           )}
 
           {currentTab === 'spells' && (
-            <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto">
               <ReferralSystem />
             </div>
           )}

@@ -412,7 +412,7 @@ export const DailyRewards: React.FC = () => {
     const finalGems = Math.floor(baseGems * bonusMultiplier);
     
     addPoints(finalPoints);
-    addGems(finalGems);
+    addGems(finalGems, `daily_reward_day_${newStreak}`);
     
     // Apply bonus if available
     if (currentTier.rewards.bonus !== 'None') {

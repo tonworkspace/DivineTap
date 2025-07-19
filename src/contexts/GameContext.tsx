@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 
 interface GameContextType {
@@ -7,7 +7,7 @@ interface GameContextType {
   setPoints: (points: number) => void;
   setGems: (gems: number) => void;
   addPoints: (amount: number) => void;
-  addGems: (amount: number) => void;
+  addGems: (amount: number, source?: string) => void;
   activeBoosts: Array<{type: string, multiplier: number, expires: number}>;
   addBoost: (boost: {type: string, multiplier: number, expires: number}) => void;
   removeBoost: (index: number) => void;
@@ -58,6 +58,40 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Track last gem claim time to prevent spam
+  const [lastGemClaimTime, setLastGemClaimTime] = useState(0);
+
+  // Gem transaction logging
+  const logGemTransaction = useCallback((amount: number, source: string, newTotal: number) => {
+    const userId = user?.id ? user.id.toString() : 'anonymous';
+    const logKey = getUserSpecificKey('gemTransactionLog', userId);
+    const existingLog = localStorage.getItem(logKey);
+    
+    let transactionLog = existingLog ? JSON.parse(existingLog) : [];
+    
+    // Add new transaction
+    const transaction = {
+      timestamp: Date.now(),
+      amount,
+      source,
+      newTotal,
+      userId: userId,
+      sessionId: Date.now().toString(36) // Simple session identifier
+    };
+    
+    transactionLog.push(transaction);
+    
+    // Keep only last 100 transactions to prevent storage bloat
+    if (transactionLog.length > 100) {
+      transactionLog = transactionLog.slice(-100);
+    }
+    
+    localStorage.setItem(logKey, JSON.stringify(transactionLog));
+    
+    // Log to console for debugging
+    console.log(`💎 Gem Transaction: +${amount} from ${source} | New Total: ${newTotal} | User: ${userId}`);
+  }, [user?.id]);
+
   // Real-time sync with DivineMiningGame localStorage
   useEffect(() => {
     const syncWithDivineMining = () => {
@@ -84,6 +118,10 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
         const newGems = parseInt(savedGems, 10);
         setGems(currentGems => {
           if (newGems !== currentGems) {
+            // Dispatch global gem update event for sync
+            window.dispatchEvent(new CustomEvent('gemsUpdated', { 
+              detail: { gems: newGems, amount: 0 } 
+            }));
             return newGems;
           }
           return currentGems;
@@ -158,9 +196,42 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     console.log('addPoints called with:', amount, '- handled by DivineMiningGame');
   };
 
-  const addGems = (amount: number) => {
-    setGems(prev => prev + amount);
-  };
+  const addGems = useCallback((amount: number, source: string = 'unknown') => {
+    // Rate limiting: prevent claiming gems more than once per 100ms
+    const now = Date.now();
+    if (now - lastGemClaimTime < 100) {
+      console.warn('🚫 Gem claim rate limit exceeded - preventing spam');
+      return;
+    }
+    
+    // Validate amount
+    if (amount <= 0 || amount > 10000) {
+      console.warn('🚫 Invalid gem amount:', amount);
+      return;
+    }
+    
+    // Prevent huge amounts that might indicate exploitation
+    if (amount > 1000) {
+      console.warn('🚫 Gem amount too large, capping at 1000:', amount);
+      amount = 1000;
+    }
+    
+    setLastGemClaimTime(now);
+    
+    setGems(prev => {
+      const newGems = prev + amount;
+      
+      // Log the transaction
+      logGemTransaction(amount, source, newGems);
+      
+      // Dispatch global gem update event
+      window.dispatchEvent(new CustomEvent('gemsUpdated', { 
+        detail: { gems: newGems, amount, source } 
+      }));
+      
+      return newGems;
+    });
+  }, [lastGemClaimTime, logGemTransaction]);
 
   const addBoost = (boost: {type: string, multiplier: number, expires: number}) => {
     setActiveBoosts(prev => [...prev, boost]);
@@ -170,11 +241,50 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
     setActiveBoosts(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Enhanced setGems with global event dispatch
+  const enhancedSetGems = (newGems: number) => {
+    setGems(newGems);
+    // Dispatch global gem update event
+    window.dispatchEvent(new CustomEvent('gemsUpdated', { 
+      detail: { gems: newGems, amount: 0 } 
+    }));
+  };
+
+  // Debug function to get gem transaction logs (development only)
+  const getGemTransactionLogs = useCallback(() => {
+    if (!import.meta.env.DEV) return [];
+    
+    const userId = user?.id ? user.id.toString() : 'anonymous';
+    const logKey = getUserSpecificKey('gemTransactionLog', userId);
+    const existingLog = localStorage.getItem(logKey);
+    
+    return existingLog ? JSON.parse(existingLog) : [];
+  }, [user?.id]);
+
+  // Debug function to clear gem transaction logs (development only)
+  const clearGemTransactionLogs = useCallback(() => {
+    if (!import.meta.env.DEV) return;
+    
+    const userId = user?.id ? user.id.toString() : 'anonymous';
+    const logKey = getUserSpecificKey('gemTransactionLog', userId);
+    localStorage.removeItem(logKey);
+    
+    console.log('🧹 Gem transaction logs cleared');
+  }, [user?.id]);
+
+  // Expose debug functions to window for development
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      (window as any).getGemLogs = getGemTransactionLogs;
+      (window as any).clearGemLogs = clearGemTransactionLogs;
+    }
+  }, [getGemTransactionLogs, clearGemTransactionLogs]);
+
   const value: GameContextType = {
     points,
     gems,
     setPoints,
-    setGems,
+    setGems: enhancedSetGems,
     addPoints,
     addGems,
     activeBoosts,

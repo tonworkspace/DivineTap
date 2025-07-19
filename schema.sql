@@ -8,6 +8,7 @@ CREATE TABLE users (
     wallet_address TEXT UNIQUE NOT NULL,
     username TEXT,
     referrer_id INTEGER REFERENCES users(id),
+    referral_code TEXT UNIQUE, -- Static referral code for this user
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     balance NUMERIC DEFAULT 0,
     total_deposit NUMERIC DEFAULT 0,
@@ -384,6 +385,7 @@ CREATE TABLE task_analytics (
 CREATE INDEX idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX idx_users_wallet_address ON users(wallet_address);
 CREATE INDEX idx_users_referrer_id ON users(referrer_id);
+CREATE INDEX idx_users_referral_code ON users(referral_code);
 CREATE INDEX idx_stakes_user_id ON stakes(user_id);
 CREATE INDEX idx_stakes_is_active ON stakes(is_active);
 CREATE INDEX idx_deposits_user_id ON deposits(user_id);
@@ -559,3 +561,41 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON TABLE user_game_data IS 'Stores user game state, upgrades, and achievements for the Divine Mining Game';
 COMMENT ON COLUMN user_game_data.game_data IS 'JSON object containing all game state including divine points, energy, upgrades, achievements, etc.';
 COMMENT ON COLUMN user_game_data.last_updated IS 'Timestamp of last game data update'; 
+
+-- Referral attempts (for enhanced referral tracking)
+CREATE TABLE referral_attempts (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) NOT NULL,
+    referral_code TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'invalid', 'duplicate', 'self_referral')),
+    reason TEXT,
+    referrer_username TEXT,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add indexes for referral attempts
+CREATE INDEX idx_referral_attempts_user_id ON referral_attempts(user_id);
+CREATE INDEX idx_referral_attempts_status ON referral_attempts(status);
+CREATE INDEX idx_referral_attempts_timestamp ON referral_attempts(timestamp);
+
+-- Create referral functions
+CREATE OR REPLACE FUNCTION increment_direct_referrals(user_id INTEGER)
+RETURNS BOOLEAN AS $$
+BEGIN
+  UPDATE users 
+  SET direct_referrals = COALESCE(direct_referrals, 0) + 1
+  WHERE id = user_id;
+  
+  RETURN FOUND;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create function to check if stored procedure exists
+CREATE OR REPLACE FUNCTION create_increment_referrals_function()
+RETURNS BOOLEAN AS $$
+BEGIN
+  -- Function is already created above, just return true
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql; 

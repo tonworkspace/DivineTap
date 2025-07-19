@@ -205,7 +205,7 @@ const getCurrentTier = (level: number) => {
 
 
 export const DivineMiningGame: React.FC = () => {
-  const { setPoints, activeBoosts } = useGameContext();
+  const { setPoints, activeBoosts, gems } = useGameContext();
   const { user } = useAuth();
   const {
     // showAchievementNotification,
@@ -1849,6 +1849,75 @@ export const DivineMiningGame: React.FC = () => {
       }
     }
   }, [gameState.divinePoints, setPoints, gameState.highScore, gameState.allTimeHighScore, getUserSpecificKey]);
+
+  // Listen for global gem updates to ensure perfect synchronization
+  useEffect(() => {
+    const handleGemUpdate = (event: CustomEvent) => {
+      const { gems: newGems } = event.detail;
+      console.log('🔄 DivineMiningGame received gem update:', newGems);
+      // The gems are already updated in GameContext, this is just for logging/debugging
+    };
+
+    // Listen for global gem update events
+    window.addEventListener('gemsUpdated', handleGemUpdate as EventListener);
+
+    return () => {
+      window.removeEventListener('gemsUpdated', handleGemUpdate as EventListener);
+    };
+  }, []);
+
+  // Enhanced referral notification system
+  useEffect(() => {
+    const handleReferralProcessed = (event: CustomEvent) => {
+      const { success, message, startParam } = event.detail;
+      
+      if (success) {
+        // Show success notification
+        showSystemNotification(
+          '🎉 Welcome to DivineTap!',
+          message,
+          'success'
+        );
+        
+        // Give welcome bonus
+        setTimeout(() => {
+          setGameState(prev => ({
+            ...prev,
+            divinePoints: prev.divinePoints + 1000
+          }));
+          
+          showSystemNotification(
+            '💎 Welcome Bonus!',
+            '+1000 Divine Points for joining through referral!',
+            'success'
+          );
+        }, 2000);
+        
+        console.log('✅ Referral processed successfully:', startParam);
+      } else {
+        // Show error notification
+        showSystemNotification(
+          '⚠️ Referral Notice',
+          message,
+          'warning'
+        );
+        
+        console.log('❌ Referral processing failed:', message);
+      }
+    };
+    
+    // Listen for referral processing events
+    window.addEventListener('referralProcessed', handleReferralProcessed as EventListener);
+    
+    return () => {
+      window.removeEventListener('referralProcessed', handleReferralProcessed as EventListener);
+    };
+  }, [showSystemNotification]);
+
+  // Log gem value for debugging synchronization
+  useEffect(() => {
+    console.log('💎 DivineMiningGame sees gem value:', gems);
+  }, [gems]);
 
   // Apply active boosts to mining rate (enhanced version moved after upgrades)
   const getBoostedMiningRate = useCallback(() => {

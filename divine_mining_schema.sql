@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_name VARCHAR(255),
     language_code VARCHAR(10),
     wallet_address VARCHAR(255),
+    referral_code VARCHAR(255) UNIQUE, -- Static referral code for this user
     balance DECIMAL(18, 6) DEFAULT 0,
     total_deposit DECIMAL(18, 6) DEFAULT 0,
     total_withdrawn DECIMAL(18, 6) DEFAULT 0,
@@ -575,3 +576,46 @@ CREATE TABLE schema_version (
 );
 
 INSERT INTO schema_version (version, description) VALUES (1, 'Initial Divine Mining Game schema'); 
+
+-- Referral attempts (for enhanced referral tracking)
+CREATE TABLE IF NOT EXISTS referral_attempts (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) NOT NULL,
+    referral_code TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'invalid', 'duplicate', 'self_referral')),
+    reason TEXT,
+    referrer_username TEXT,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add indexes for referral attempts
+CREATE INDEX IF NOT EXISTS idx_referral_attempts_user_id ON referral_attempts(user_id);
+CREATE INDEX IF NOT EXISTS idx_referral_attempts_status ON referral_attempts(status);
+CREATE INDEX IF NOT EXISTS idx_referral_attempts_timestamp ON referral_attempts(timestamp);
+
+-- Add indexes for users table
+CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
+CREATE INDEX IF NOT EXISTS idx_users_referrer_id ON users(referrer_id);
+CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
+
+-- Create referral functions
+CREATE OR REPLACE FUNCTION increment_direct_referrals(user_id INTEGER)
+RETURNS BOOLEAN AS $$
+BEGIN
+  UPDATE users 
+  SET direct_referrals = COALESCE(direct_referrals, 0) + 1
+  WHERE id = user_id;
+  
+  RETURN FOUND;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create function to check if stored procedure exists
+CREATE OR REPLACE FUNCTION create_increment_referrals_function()
+RETURNS BOOLEAN AS $$
+BEGIN
+  -- Function is already created above, just return true
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql; 

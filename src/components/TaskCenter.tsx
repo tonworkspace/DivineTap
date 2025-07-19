@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { GiCoins, GiLightningArc, GiUpgrade } from 'react-icons/gi';
 import { useGameContext } from '@/contexts/GameContext';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,18 +20,27 @@ interface TaskProgress {
   [key: string]: number;
 }
 
+interface GameState {
+  divinePoints?: number;
+  isMining?: boolean;
+  sessionStartTime?: number;
+  upgrades?: Array<{ id: string; level: number }>;
+  upgradesPurchased?: number;
+}
+
 export const TaskCenter: React.FC = () => {
   const { addGems } = useGameContext();
   const { user } = useAuth();
   
-  // Helper function to get user-specific localStorage keys
-  const getUserSpecificKey = (baseKey: string, userId?: string) => {
-    if (!userId) return baseKey; // Fallback for non-authenticated users
-    return `${baseKey}_${userId}`;
-  };
-  
+  // Centralized state management
   const [completedTasks, setCompletedTasks] = useState<string[]>([]);
   const [taskProgress, setTaskProgress] = useState<TaskProgress>({});
+  const [processingTasks, setProcessingTasks] = useState<Set<string>>(new Set());
+  const [lastCompletionTime, setLastCompletionTime] = useState<{ [key: string]: number }>({});
+  const [gameState, setGameState] = useState<GameState>({});
+  const [miningTime, setMiningTime] = useState<number>(0);
+  
+  // Modal states
   const [showRewardModal, setShowRewardModal] = useState(false);
   const [rewardMessage, setRewardMessage] = useState('');
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -47,210 +56,267 @@ export const TaskCenter: React.FC = () => {
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
   const [walletError, setWalletError] = useState('');
+  
+  // Refs for tracking
+  const autoCompletedTasksRef = useRef<Set<string>>(new Set());
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUpdateRef = useRef<number>(0);
+  const isInitializedRef = useRef<boolean>(false);
+  
+  // Helper function to get user-specific localStorage keys
+  const getUserSpecificKey = useCallback((baseKey: string, userId?: string) => {
+    if (!userId) return baseKey;
+    return `${baseKey}_${userId}`;
+  }, []);
 
-  // Load completed tasks from localStorage
-  useEffect(() => {
-    const userId = user?.id ? user.id.toString() : undefined;
-    const userCompletedTasksKey = getUserSpecificKey('divineMiningCompletedTasks', userId);
-    const savedCompletedTasks = localStorage.getItem(userCompletedTasksKey);
-    if (savedCompletedTasks) {
-      try {
-        setCompletedTasks(JSON.parse(savedCompletedTasks));
-      } catch (error) {
-        console.error('Error parsing completed tasks for user:', userId, error);
-      }
+  // Safe localStorage operations
+  const safeGetItem = useCallback((key: string, defaultValue: any = null) => {
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : defaultValue;
+    } catch (error) {
+      console.error('Error reading localStorage:', error);
+      return defaultValue;
     }
-  }, [user?.id]);
+  }, []);
 
-  // Listen for localStorage changes and custom events to detect upgrade purchases
+  const safeSetItem = useCallback((key: string, value: any) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error writing to localStorage:', error);
+    }
+  }, []);
+
+  // Optimized mining time calculation
+  const calculateMiningTime = useCallback((currentGameState: GameState, userId: string) => {
+    if (!currentGameState.isMining || !currentGameState.sessionStartTime) {
+      return 0;
+    }
+
+    const miningTimeKey = getUserSpecificKey('miningTime', userId);
+    const lastUpdateKey = getUserSpecificKey('lastMiningUpdate', userId);
+    
+    const now = Date.now();
+    const storedTime = parseFloat(localStorage.getItem(miningTimeKey) || '0');
+    const lastUpdate = parseFloat(localStorage.getItem(lastUpdateKey) || '0');
+    
+    // Calculate time delta more accurately
+    const timeDelta = lastUpdate > 0 ? 
+      (now - lastUpdate) / 1000 : 
+      (now - currentGameState.sessionStartTime) / 1000;
+    
+    const newTotalTime = storedTime + Math.max(0, timeDelta);
+    
+    // Update storage
+    localStorage.setItem(miningTimeKey, newTotalTime.toString());
+    localStorage.setItem(lastUpdateKey, now.toString());
+    
+    return Math.min(newTotalTime, 3600); // Cap at 1 hour
+  }, [getUserSpecificKey]);
+
+  // Centralized game state reader
+  const readGameState = useCallback((): GameState => {
+    const savedGameState = safeGetItem('divineMiningGame', {});
+    return {
+      divinePoints: savedGameState.divinePoints || 0,
+      isMining: savedGameState.isMining || false,
+      sessionStartTime: savedGameState.sessionStartTime || 0,
+      upgrades: savedGameState.upgrades || [],
+      upgradesPurchased: savedGameState.upgradesPurchased || 0
+    };
+  }, [safeGetItem]);
+
+  // Optimized progress calculation
+  const calculateProgress = useCallback(() => {
+    if (!user?.id) return;
+
+    const currentGameState = readGameState();
+    const userId = user.id.toString();
+    
+    // Calculate mining time
+    const currentMiningTime = calculateMiningTime(currentGameState, userId);
+    
+    // Check for upgrades
+    const hasUpgrades = currentGameState.upgrades?.some(upgrade => (upgrade.level || 0) > 0) || 
+                       (currentGameState.upgradesPurchased || 0) > 0;
+
+    const newProgress: TaskProgress = {
+      mine_1000: Math.min(currentGameState.divinePoints || 0, 1000),
+      mine_10000: Math.min(currentGameState.divinePoints || 0, 10000),
+      mine_1hour: Math.floor(currentMiningTime),
+      buy_upgrade: hasUpgrades ? 1 : 0,
+      follow_twitter: 0,
+      join_telegram: 0,
+      retweet_post: 0,
+      submit_wallet: 0,
+      invite_friend: 0,
+      like_post: 0
+    };
+
+    // Update states
+    setGameState(currentGameState);
+    setMiningTime(currentMiningTime);
+    setTaskProgress(newProgress);
+
+    // Auto-complete tasks
+    const tasksToComplete = [
+      { id: 'mine_1000', condition: newProgress.mine_1000 >= 1000, reward: '50 Gems' },
+      { id: 'mine_10000', condition: newProgress.mine_10000 >= 10000, reward: '100 Gems' },
+      { id: 'mine_1hour', condition: newProgress.mine_1hour >= 3600, reward: '75 Gems' },
+      { id: 'buy_upgrade', condition: newProgress.buy_upgrade >= 1, reward: '25 Gems' }
+    ];
+
+    tasksToComplete.forEach(({ id, condition, reward }) => {
+      if (condition && 
+          !completedTasks.includes(id) && 
+          !processingTasks.has(id) &&
+          !autoCompletedTasksRef.current.has(id)) {
+        console.log(`🎉 Auto-completing task: ${id}`);
+        autoCompletedTasksRef.current.add(id);
+        completeTask(id, reward);
+      }
+    });
+
+  }, [user?.id, readGameState, calculateMiningTime, completedTasks, processingTasks]);
+
+  // Optimized completeTask function
+  const completeTask = useCallback((taskId: string, reward: string) => {
+    const now = Date.now();
+    
+    // Comprehensive validation
+    if (completedTasks.includes(taskId)) {
+      console.log(`⚠️ Task ${taskId} already completed`);
+      return;
+    }
+    
+    if (processingTasks.has(taskId)) {
+      console.log(`⚠️ Task ${taskId} is being processed`);
+      return;
+    }
+    
+    // Rate limiting
+    const lastCompletion = lastCompletionTime[taskId];
+    if (lastCompletion && (now - lastCompletion) < 1000) {
+      console.log(`⚠️ Task ${taskId} rate limited`);
+      return;
+    }
+    
+    // Mark as processing
+    setProcessingTasks(prev => new Set(prev).add(taskId));
+    setLastCompletionTime(prev => ({ ...prev, [taskId]: now }));
+    
+    try {
+      const gemMatch = reward.match(/(\d+)\s*Gems?/);
+      if (gemMatch) {
+        const gemAmount = parseInt(gemMatch[1], 10);
+        
+        // Atomic state update
+        setCompletedTasks(prev => {
+          if (prev.includes(taskId)) {
+            console.log(`⚠️ Task ${taskId} was completed by another process`);
+            autoCompletedTasksRef.current.delete(taskId);
+            return prev;
+          }
+          
+          const newCompleted = [...prev, taskId];
+          
+          // Add gems and show reward
+          addGems(gemAmount, `task_${taskId}`);
+          setRewardMessage(`🎉 Task completed! +${gemAmount} Gems`);
+          setShowRewardModal(true);
+          
+          // Clean up auto-completion tracking
+          autoCompletedTasksRef.current.delete(taskId);
+          
+          return newCompleted;
+        });
+      }
+    } catch (error) {
+      console.error('Error completing task:', error);
+    } finally {
+      // Always clean up processing state
+      setProcessingTasks(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(taskId);
+        return newSet;
+      });
+    }
+  }, [completedTasks, processingTasks, lastCompletionTime, addGems]);
+
+  // Load completed tasks on mount
   useEffect(() => {
+    if (!user?.id) return;
+
+    const userId = user.id.toString();
+    const completedTasksKey = getUserSpecificKey('divineMiningCompletedTasks', userId);
+    const savedTasks = safeGetItem(completedTasksKey, []);
+    
+    setCompletedTasks(savedTasks);
+    
+    // Clean up auto-completion refs
+    savedTasks.forEach((taskId: string) => {
+      autoCompletedTasksRef.current.delete(taskId);
+    });
+    
+    isInitializedRef.current = true;
+  }, [user?.id, getUserSpecificKey, safeGetItem]);
+
+  // Save completed tasks
+  useEffect(() => {
+    if (!user?.id || !isInitializedRef.current) return;
+
+    const userId = user.id.toString();
+    const completedTasksKey = getUserSpecificKey('divineMiningCompletedTasks', userId);
+    safeSetItem(completedTasksKey, completedTasks);
+  }, [completedTasks, user?.id, getUserSpecificKey, safeSetItem]);
+
+  // Optimized polling with better cleanup
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Initial calculation
+    calculateProgress();
+
+    // Set up optimized interval (every 2 seconds instead of 1)
+    intervalRef.current = setInterval(() => {
+      const now = Date.now();
+      
+      // Throttle updates to prevent excessive calculations
+      if (now - lastUpdateRef.current < 2000) return;
+      
+      lastUpdateRef.current = now;
+      calculateProgress();
+    }, 2000);
+
+    // Event listeners for immediate updates
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'divineMiningGame' && e.newValue) {
-        try {
-          const gameState = JSON.parse(e.newValue);
-          
-          // Check multiple indicators for upgrade purchases
-          let hasUpgrades = false;
-          let upgradeDetails = {};
-          
-          // Method 1: Check upgrades array for any level > 0
-          if (gameState.upgrades && Array.isArray(gameState.upgrades)) {
-            const purchasedUpgrades = gameState.upgrades.filter((upgrade: any) => (upgrade.level || 0) > 0);
-            hasUpgrades = purchasedUpgrades.length > 0;
-            upgradeDetails = {
-              method: 'upgrades_array',
-              purchasedUpgrades: purchasedUpgrades.length,
-              upgrades: gameState.upgrades.map((u: any) => ({ id: u.id, level: u.level }))
-            };
-          }
-          
-          // Method 2: Check upgradesPurchased counter
-          if (!hasUpgrades && gameState.upgradesPurchased && gameState.upgradesPurchased > 0) {
-            hasUpgrades = true;
-            upgradeDetails = {
-              method: 'upgradesPurchased_counter',
-              upgradesPurchased: gameState.upgradesPurchased
-            };
-          }
-          
-          console.log('🔄 Storage change detected - Upgrade check:', {
-            hasUpgrades,
-            ...upgradeDetails
-          });
-          
-          // If upgrades are detected and task is not completed, complete it
-          if (hasUpgrades && !completedTasks.includes('buy_upgrade')) {
-            console.log('🎉 Storage change triggered upgrade task completion!');
-            completeTask('buy_upgrade', '25 Gems');
-          }
-        } catch (error) {
-          console.error('Error parsing game state from storage change:', error);
-        }
+      if (e.key === 'divineMiningGame') {
+        calculateProgress();
       }
     };
 
-    // Listen for custom upgrade purchase events
     const handleUpgradePurchase = (e: CustomEvent) => {
-      console.log('🎉 Custom upgrade purchase event detected:', e.detail);
-      if (!completedTasks.includes('buy_upgrade')) {
-        console.log('🎉 Custom event triggered upgrade task completion!');
-        completeTask('buy_upgrade', '25 Gems');
-      }
+      console.log('🎉 Upgrade purchased event detected:', e.detail);
+      // Force immediate progress calculation
+      setTimeout(calculateProgress, 100);
     };
 
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('upgradePurchased', handleUpgradePurchase as EventListener);
-    
+
     return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('upgradePurchased', handleUpgradePurchase as EventListener);
     };
-  }, [completedTasks]);
+  }, [user?.id, calculateProgress]);
 
-  // Save completed tasks to localStorage
-  useEffect(() => {
-    const userId = user?.id ? user.id.toString() : undefined;
-    const userCompletedTasksKey = getUserSpecificKey('divineMiningCompletedTasks', userId);
-    localStorage.setItem(userCompletedTasksKey, JSON.stringify(completedTasks));
-  }, [completedTasks, user?.id]);
-
-  // Calculate task progress
-  useEffect(() => {
-    const calculateProgress = () => {
-      // Get current game state from localStorage
-      const savedGameState = localStorage.getItem('divineMiningGame');
-      let currentPoints = 0;
-      let totalUpgrades = 0;
-      let miningTime = 0;
-      let hasUpgrades = false;
-
-      if (savedGameState) {
-        try {
-          const gameState = JSON.parse(savedGameState);
-          currentPoints = gameState.divinePoints || 0;
-          
-          // Calculate total upgrade levels and check for purchased upgrades
-          if (gameState.upgrades && Array.isArray(gameState.upgrades)) {
-            totalUpgrades = gameState.upgrades.reduce((sum: number, upgrade: any) => sum + (upgrade.level || 0), 0);
-            
-            // Check if any upgrade has been purchased (level > 0)
-            const purchasedUpgrades = gameState.upgrades.filter((upgrade: any) => (upgrade.level || 0) > 0);
-            hasUpgrades = purchasedUpgrades.length > 0;
-            
-            // Also check for upgradesPurchased field in game state
-            if (gameState.upgradesPurchased && gameState.upgradesPurchased > 0) {
-              hasUpgrades = true;
-            }
-            
-            // Debug logging for upgrade detection
-            console.log('🔍 TaskCenter Upgrade Debug:', {
-              totalUpgrades,
-              purchasedUpgrades: purchasedUpgrades.length,
-              hasUpgrades,
-              upgradesPurchased: gameState.upgradesPurchased || 0,
-              upgrades: gameState.upgrades.map((u: any) => ({ id: u.id, level: u.level })),
-              completedTasks: completedTasks
-            });
-          }
-          
-          // Calculate mining time - track cumulative mining time
-          if (gameState.sessionStartTime) {
-            let totalMiningTime = gameState.totalMiningTime || 0; // Get previously saved mining time
-            
-            // Add current session time if mining is active
-            if (gameState.isMining) {
-              const sessionTime = Date.now() - gameState.sessionStartTime;
-              totalMiningTime += sessionTime / 1000; // Convert to seconds
-            }
-            
-            miningTime = Math.min(totalMiningTime, 3600); // Cap at 1 hour for the task
-          }
-        } catch (error) {
-          console.error('Error parsing game state for task progress:', error);
-        }
-      }
-
-      const newProgress: TaskProgress = {
-        mine_1000: Math.min(currentPoints, 1000),
-        mine_10000: Math.min(currentPoints, 10000),
-        mine_1hour: Math.floor(miningTime),
-        buy_upgrade: hasUpgrades ? 1 : 0,
-        follow_twitter: 0,
-        join_telegram: 0,
-        retweet_post: 0,
-        submit_wallet: 0,
-        invite_friend: 0,
-        like_post: 0
-      };
-
-      setTaskProgress(newProgress);
-      
-      // Auto-complete mining tasks when they reach their goals
-      if (newProgress.mine_1000 >= 1000 && !completedTasks.includes('mine_1000')) {
-        console.log('🎉 Auto-completing mine_1000 task!');
-        completeTask('mine_1000', '50 Gems');
-      }
-      if (newProgress.mine_10000 >= 10000 && !completedTasks.includes('mine_10000')) {
-        console.log('🎉 Auto-completing mine_10000 task!');
-        completeTask('mine_10000', '100 Gems');
-      }
-      if (newProgress.mine_1hour >= 3600 && !completedTasks.includes('mine_1hour')) {
-        console.log('🎉 Auto-completing mine_1hour task!');
-        completeTask('mine_1hour', '75 Gems');
-      }
-      if (newProgress.buy_upgrade >= 1 && !completedTasks.includes('buy_upgrade')) {
-        console.log('🎉 Auto-completing buy_upgrade task!');
-        completeTask('buy_upgrade', '25 Gems');
-      }
-      
-      // Save updated mining time back to game state
-      if (savedGameState) {
-        try {
-          const gameState = JSON.parse(savedGameState);
-          const currentMiningTime = gameState.totalMiningTime || 0;
-          const sessionTime = gameState.isMining && gameState.sessionStartTime ? 
-            (Date.now() - gameState.sessionStartTime) / 1000 : 0;
-          const newTotalMiningTime = currentMiningTime + sessionTime;
-          
-          // Only update if the time has changed significantly
-          if (Math.abs(newTotalMiningTime - currentMiningTime) > 1) {
-            gameState.totalMiningTime = newTotalMiningTime;
-            localStorage.setItem('divineMiningGame', JSON.stringify(gameState));
-          }
-        } catch (error) {
-          console.error('Error updating mining time in game state:', error);
-        }
-      }
-    };
-
-    calculateProgress();
-    const interval = setInterval(calculateProgress, 1000); // Update every 1 second for faster response
-
-    return () => clearInterval(interval);
-  }, [user?.id, completedTasks]);
-
-  // Task definitions
-  const tasks: Task[] = [
+  // Memoized task definitions
+  const tasks: Task[] = useMemo(() => [
     {
       id: 'mine_1000',
       title: 'Mine 1,000 Points',
@@ -361,86 +427,10 @@ export const TaskCenter: React.FC = () => {
       icon: <span className="text-red-400">❤️</span>,
       type: 'social'
     }
-  ];
+  ], [completedTasks, taskProgress]);
 
-  // Handle task completion
-  const completeTask = (taskId: string, reward: string) => {
-    console.log(`🎯 Attempting to complete task: ${taskId}, already completed: ${completedTasks.includes(taskId)}`);
-    
-    if (!completedTasks.includes(taskId)) {
-      // Extract gem amount from reward string
-      const gemMatch = reward.match(/(\d+)\s*Gems?/);
-      if (gemMatch) {
-        const gemAmount = parseInt(gemMatch[1], 10);
-        console.log(`💰 Adding ${gemAmount} gems for task completion`);
-        addGems(gemAmount);
-        setCompletedTasks(prev => {
-          const newCompleted = [...prev, taskId];
-          console.log(`✅ Updated completed tasks:`, newCompleted);
-          return newCompleted;
-        });
-        setRewardMessage(`🎉 Task completed! +${gemAmount} Gems`);
-        setShowRewardModal(true);
-        
-        // Force refresh task progress to update UI immediately
-        setTimeout(() => {
-          const calculateProgress = () => {
-            const savedGameState = localStorage.getItem('divineMiningGame');
-            let currentPoints = 0;
-            let totalUpgrades = 0;
-            let miningTime = 0;
-            let hasUpgrades = false;
-
-            if (savedGameState) {
-              try {
-                const gameState = JSON.parse(savedGameState);
-                currentPoints = gameState.divinePoints || 0;
-                
-                if (gameState.upgrades && Array.isArray(gameState.upgrades)) {
-                  totalUpgrades = gameState.upgrades.reduce((sum: number, upgrade: any) => sum + (upgrade.level || 0), 0);
-                  const purchasedUpgrades = gameState.upgrades.filter((upgrade: any) => (upgrade.level || 0) > 0);
-                  hasUpgrades = purchasedUpgrades.length > 0;
-                }
-                
-                if (gameState.sessionStartTime) {
-                  let totalMiningTime = gameState.totalMiningTime || 0;
-                  if (gameState.isMining) {
-                    const sessionTime = Date.now() - gameState.sessionStartTime;
-                    totalMiningTime += sessionTime / 1000;
-                  }
-                  miningTime = Math.min(totalMiningTime, 3600);
-                }
-              } catch (error) {
-                console.error('Error parsing game state for task progress refresh:', error);
-              }
-            }
-
-            const newProgress: TaskProgress = {
-              mine_1000: Math.min(currentPoints, 1000),
-              mine_10000: Math.min(currentPoints, 10000),
-              mine_1hour: Math.floor(miningTime),
-              buy_upgrade: hasUpgrades ? 1 : 0,
-              follow_twitter: 0,
-              join_telegram: 0,
-              retweet_post: 0,
-              submit_wallet: 0,
-              invite_friend: 0,
-              like_post: 0
-            };
-
-            setTaskProgress(newProgress);
-          };
-          
-          calculateProgress();
-        }, 100);
-      }
-    } else {
-      console.log(`⚠️ Task ${taskId} already completed, skipping`);
-    }
-  };
-
-  // Show custom task modal
-  const displayTaskModal = (task: Task, type: 'social' | 'wallet' | 'invite', message: string, confirmText: string, cancelText?: string, onConfirm?: () => void, onCancel?: () => void) => {
+  // Rest of the component methods remain the same...
+  const displayTaskModal = useCallback((task: Task, type: 'social' | 'wallet' | 'invite', message: string, confirmText: string, cancelText?: string, onConfirm?: () => void, onCancel?: () => void) => {
     setCurrentTaskModal({
       task,
       type,
@@ -451,76 +441,68 @@ export const TaskCenter: React.FC = () => {
       onCancel
     });
     setShowTaskModal(true);
-  };
+  }, [completeTask]);
 
-  // Handle social/airdrop task actions with custom UI
-  const handleTaskAction = (task: Task) => {
-    // Don't allow completion if already completed
+  const handleTaskAction = useCallback((task: Task) => {
     if (completedTasks.includes(task.id)) {
       displayTaskModal(task, 'invite', 'This task has already been completed!', 'OK');
+      return;
+    }
+    
+    if (processingTasks.has(task.id)) {
+      displayTaskModal(task, 'invite', 'This task is currently being processed. Please wait...', 'OK');
       return;
     }
 
     switch (task.id) {
       case 'follow_twitter':
-        // Open Twitter and show custom modal
-        const twitterWindow = window.open('https://twitter.com/DivineTap', '_blank');
-        if (twitterWindow) {
-          setTimeout(() => {
-            displayTaskModal(
-              task,
-              'social',
-              'Did you follow @DivineTap on Twitter?',
-              'Yes, Complete Task',
-              'Not Yet',
-              () => completeTask(task.id, task.reward),
-              () => setShowTaskModal(false)
-            );
-          }, 3000);
-        }
+        window.open('https://x.com/DivineTaps', '_blank');
+        setTimeout(() => {
+          displayTaskModal(
+            task,
+            'social',
+            'Did you follow @DivineTaps on Twitter?',
+            'Yes, Complete Task',
+            'Not Yet',
+            () => completeTask(task.id, task.reward),
+            () => setShowTaskModal(false)
+          );
+        }, 3000);
         break;
       case 'join_telegram':
-        // Open Telegram and show custom modal
-        const telegramWindow = window.open('https://t.me/DivineTap', '_blank');
-        if (telegramWindow) {
-          setTimeout(() => {
-            displayTaskModal(
-              task,
-              'social',
-              'Did you join our Telegram group?',
-              'Yes, Complete Task',
-              'Not Yet',
-              () => completeTask(task.id, task.reward),
-              () => setShowTaskModal(false)
-            );
-          }, 3000);
-        }
+        window.open('https://t.me/DivineTaps', '_blank');
+        setTimeout(() => {
+          displayTaskModal(
+            task,
+            'social',
+            'Did you join our Telegram group?',
+            'Yes, Complete Task',
+            'Not Yet',
+            () => completeTask(task.id, task.reward),
+            () => setShowTaskModal(false)
+          );
+        }, 3000);
         break;
       case 'retweet_post':
-        // Open retweet and show custom modal
-        const retweetWindow = window.open('https://twitter.com/intent/retweet?tweet_id=123456789', '_blank');
-        if (retweetWindow) {
-          setTimeout(() => {
-            displayTaskModal(
-              task,
-              'social',
-              'Did you retweet our latest post?',
-              'Yes, Complete Task',
-              'Not Yet',
-              () => completeTask(task.id, task.reward),
-              () => setShowTaskModal(false)
-            );
-          }, 3000);
-        }
+        window.open('https://twitter.com/intent/retweet?tweet_id=1946298009924288617', '_blank');
+        setTimeout(() => {
+          displayTaskModal(
+            task,
+            'social',
+            'Did you retweet our latest post?',
+            'Yes, Complete Task',
+            'Not Yet',
+            () => completeTask(task.id, task.reward),
+            () => setShowTaskModal(false)
+          );
+        }, 3000);
         break;
       case 'submit_wallet':
-        // Show custom wallet input modal
         setWalletAddress('');
         setWalletError('');
         setShowWalletModal(true);
         break;
       case 'invite_friend':
-        // Show referral instructions modal
         displayTaskModal(
           task,
           'invite',
@@ -531,63 +513,79 @@ export const TaskCenter: React.FC = () => {
         );
         break;
       case 'like_post':
-        // Open like and show custom modal
-        const likeWindow = window.open('https://twitter.com/intent/like?tweet_id=123456789', '_blank');
-        if (likeWindow) {
-          setTimeout(() => {
-            displayTaskModal(
-              task,
-              'social',
-              'Did you like our latest post?',
-              'Yes, Complete Task',
-              'Not Yet',
-              () => completeTask(task.id, task.reward),
-              () => setShowTaskModal(false)
-            );
-          }, 3000);
-        }
+        window.open('https://x.com/intent/like?tweet_id=1946298009924288617', '_blank');
+        setTimeout(() => {
+          displayTaskModal(
+            task,
+            'social',
+            'Did you like our latest post?',
+            'Yes, Complete Task',
+            'Not Yet',
+            () => completeTask(task.id, task.reward),
+            () => setShowTaskModal(false)
+          );
+        }, 3000);
         break;
       default:
         break;
     }
-  };
+  }, [completedTasks, processingTasks, displayTaskModal, completeTask]);
 
-  // Get mining status
-  const getMiningStatus = () => {
-    const savedGameState = localStorage.getItem('divineMiningGame');
-    if (savedGameState) {
-      try {
-        const gameState = JSON.parse(savedGameState);
-        if (gameState.isMining) {
-          return 'ACTIVE';
-        } else {
-          return 'INACTIVE';
-        }
-      } catch (error) {
-        console.error('Error parsing game state for mining status:', error);
-        return 'UNKNOWN';
-      }
-    }
-    return 'UNKNOWN';
-  };
+  const getMiningStatus = useCallback(() => {
+    return gameState.isMining ? 'ACTIVE' : 'INACTIVE';
+  }, [gameState.isMining]);
 
   // Filter tasks by type
-  const miningTasks = tasks.filter(task => task.type === 'mining');
-  const socialTasks = tasks.filter(task => task.type === 'social');
-  const airdropTasks = tasks.filter(task => task.type === 'airdrop');
+  const miningTasks = useMemo(() => tasks.filter(task => task.type === 'mining'), [tasks]);
+  const socialTasks = useMemo(() => tasks.filter(task => task.type === 'social'), [tasks]);
+  const airdropTasks = useMemo(() => tasks.filter(task => task.type === 'airdrop'), [tasks]);
 
   const [activeTab, setActiveTab] = useState<'all' | 'mining' | 'social' | 'airdrop'>('all');
 
-  const getCurrentTasks = () => {
+  const getCurrentTasks = useCallback(() => {
     switch (activeTab) {
       case 'mining': return miningTasks;
       case 'social': return socialTasks;
       case 'airdrop': return airdropTasks;
       default: return tasks;
     }
-  };
+  }, [activeTab, miningTasks, socialTasks, airdropTasks, tasks]);
 
-      return (
+  // Debug function for development
+  const resetMiningTimeTracking = useCallback(() => {
+    if (!user?.id) return;
+    
+    const userId = user.id.toString();
+    const miningTimeKey = getUserSpecificKey('miningTime', userId);
+    const lastUpdateKey = getUserSpecificKey('lastMiningUpdate', userId);
+    
+    localStorage.removeItem(miningTimeKey);
+    localStorage.removeItem(lastUpdateKey);
+    
+    setMiningTime(0);
+    autoCompletedTasksRef.current.delete('mine_1hour');
+    
+    console.log('🔄 Mining time tracking reset');
+  }, [user?.id, getUserSpecificKey]);
+
+  // Expose debug functions (development only)
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      (window as any).resetMiningTime = resetMiningTimeTracking;
+      (window as any).debugTaskCenter = () => {
+        console.log('Task Center Debug:', {
+          gameState,
+          taskProgress,
+          completedTasks,
+          processingTasks: Array.from(processingTasks),
+          miningTime,
+          autoCompleted: Array.from(autoCompletedTasksRef.current)
+        });
+      };
+    }
+  }, [resetMiningTimeTracking, gameState, taskProgress, completedTasks, processingTasks, miningTime]);
+
+  return (
     <div className="task-center-container flex-1 p-custom space-y-2 overflow-y-auto game-scrollbar">
       {/* Header */}
       <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-3 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
@@ -611,119 +609,42 @@ export const TaskCenter: React.FC = () => {
 
       {/* Mining Status */}
       <div className="relative bg-black/40 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-3 shadow-[0_0_20px_rgba(0,255,255,0.1)]">
-                  <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
-              <span className="text-cyan-400 font-mono font-bold text-xs tracking-wider">MINING STATUS</span>
-            </div>
-            <div className="text-right">
-              <div className="text-cyan-300 font-mono text-xs tracking-wider">
-                {getMiningStatus()}
-              </div>
-              {/* Debug button */}
-              <button
-                onClick={() => {
-                  const savedGameState = localStorage.getItem('divineMiningGame');
-                  if (savedGameState) {
-                    try {
-                      const gameState = JSON.parse(savedGameState);
-                      console.log('🔍 TaskCenter Debug - Current Game State:', gameState);
-                      console.log('🔍 TaskCenter Debug - Current Progress:', taskProgress);
-                      console.log('🔍 TaskCenter Debug - Completed Tasks:', completedTasks);
-                      
-                      // Detailed upgrade info
-                      const upgradeInfo = gameState.upgrades?.map((u: any) => `${u.id}: Level ${u.level}`).join('\n') || 'No upgrades found';
-                      const purchasedUpgrades = gameState.upgrades?.filter((u: any) => (u.level || 0) > 0).length || 0;
-                      
-                      alert(`Debug Info:\nDivine Points: ${gameState.divinePoints || 0}\nTotal Upgrades: ${gameState.upgrades?.length || 0}\nPurchased Upgrades: ${purchasedUpgrades}\nMining: ${gameState.isMining ? 'Yes' : 'No'}\n\nUpgrade Details:\n${upgradeInfo}`);
-                    } catch (error) {
-                      console.error('Error parsing game state for debug:', error);
-                      alert('Error reading game state');
-                    }
-                  } else {
-                    alert('No game state found in localStorage');
-                  }
-                }}
-                className="ml-2 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-                title="Debug Task Center"
-              >
-                🐛
-              </button>
-              
-              {/* Manual upgrade task test button */}
-              <button
-                onClick={() => {
-                  if (!completedTasks.includes('buy_upgrade')) {
-                    console.log('🧪 Manual test: Completing buy_upgrade task');
-                    completeTask('buy_upgrade', '25 Gems');
-                  } else {
-                    alert('Upgrade task already completed!');
-                  }
-                }}
-                className="ml-2 px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
-                title="Test Upgrade Task"
-              >
-                ⚡
-              </button>
-              
-              {/* Force check upgrades button */}
-              <button
-                onClick={() => {
-                  const savedGameState = localStorage.getItem('divineMiningGame');
-                  if (savedGameState) {
-                    try {
-                      const gameState = JSON.parse(savedGameState);
-                      let hasUpgrades = false;
-                      let upgradeDetails = {};
-                      
-                      // Check multiple indicators
-                      if (gameState.upgrades && Array.isArray(gameState.upgrades)) {
-                        const purchasedUpgrades = gameState.upgrades.filter((upgrade: any) => (upgrade.level || 0) > 0);
-                        hasUpgrades = purchasedUpgrades.length > 0;
-                        upgradeDetails = {
-                          method: 'upgrades_array',
-                          purchasedUpgrades: purchasedUpgrades.length,
-                          upgrades: gameState.upgrades.map((u: any) => ({ id: u.id, level: u.level }))
-                        };
-                      }
-                      
-                      if (!hasUpgrades && gameState.upgradesPurchased && gameState.upgradesPurchased > 0) {
-                        hasUpgrades = true;
-                        upgradeDetails = {
-                          method: 'upgradesPurchased_counter',
-                          upgradesPurchased: gameState.upgradesPurchased
-                        };
-                      }
-                      
-                      console.log('🔍 Force check upgrades:', {
-                        hasUpgrades,
-                        ...upgradeDetails,
-                        completedTasks: completedTasks
-                      });
-                      
-                      if (hasUpgrades && !completedTasks.includes('buy_upgrade')) {
-                        console.log('🎉 Force check triggered upgrade task completion!');
-                        completeTask('buy_upgrade', '25 Gems');
-                      } else if (hasUpgrades && completedTasks.includes('buy_upgrade')) {
-                        alert('Upgrade task already completed!');
-                      } else {
-                        alert('No upgrades found. Purchase an upgrade first!');
-                      }
-                    } catch (error) {
-                      console.error('Error parsing game state for force check:', error);
-                      alert('Error reading game state');
-                    }
-                  } else {
-                    alert('No game state found!');
-                  }
-                }}
-                className="ml-2 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                title="Force Check Upgrades"
-              >
-                🔍
-              </button>
-            </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></div>
+            <span className="text-cyan-400 font-mono font-bold text-xs tracking-wider">MINING STATUS</span>
           </div>
+          <div className="text-right">
+            <div className="text-cyan-300 font-mono text-xs tracking-wider">
+              {getMiningStatus()}
+            </div>
+            {import.meta.env.DEV && (
+              <div className="flex gap-1 mt-1">
+                <button
+                  onClick={() => {
+                    (window as any).debugTaskCenter?.();
+                  }}
+                  className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                  title="Debug Task Center"
+                >
+                  🔍
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm('Reset mining time tracking?')) {
+                      resetMiningTimeTracking();
+                      alert('Mining time tracking reset!');
+                    }
+                  }}
+                  className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                  title="Reset Mining Time"
+                >
+                  🔄
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Task Type Tabs */}
@@ -751,12 +672,15 @@ export const TaskCenter: React.FC = () => {
       {/* Task List */}
       <div className="space-y-2">
         {getCurrentTasks().map((task) => {
-          const isCompleted = task.completed || (task.progress >= task.max && task.type === 'mining');
+          const isCompleted = task.completed;
+          const isProcessing = processingTasks.has(task.id);
           
           return (
             <div key={task.id} className={`relative bg-black/40 backdrop-blur-xl border rounded-lg p-3 transition-all duration-300 ${
               isCompleted 
                 ? 'bg-green-500/20 border-green-400 shadow-[0_0_20px_rgba(34,197,94,0.1)]' 
+                : isProcessing
+                ? 'bg-orange-500/20 border-orange-400 shadow-[0_0_20px_rgba(255,165,0,0.1)]'
                 : 'bg-gray-800/50 border-cyan-500/30 shadow-[0_0_20px_rgba(0,255,255,0.1)]'
             }`}>
               <div className="flex items-center justify-between mb-2">
@@ -776,6 +700,9 @@ export const TaskCenter: React.FC = () => {
                   {isCompleted && (
                     <div className="text-green-400 text-xs font-mono tracking-wider">✓ COMPLETED</div>
                   )}
+                  {isProcessing && (
+                    <div className="text-orange-400 text-xs font-mono tracking-wider animate-pulse">⏳ PROCESSING</div>
+                  )}
                 </div>
               </div>
               
@@ -785,7 +712,7 @@ export const TaskCenter: React.FC = () => {
                   className={`h-2 rounded-full transition-all duration-300 ${
                     isCompleted ? 'bg-green-500' : 'bg-cyan-500'
                   }`}
-                  style={{ width: `${(task.progress / task.max) * 100}%` }}
+                  style={{ width: `${Math.min((task.progress / task.max) * 100, 100)}%` }}
                 ></div>
               </div>
               
@@ -800,22 +727,22 @@ export const TaskCenter: React.FC = () => {
                 
                 {/* Action Button */}
                 {task.type === 'mining' ? (
-                  // Mining tasks complete automatically
                   <div className="text-xs text-gray-500 font-mono tracking-wider">
                     AUTO-TRACKED
                   </div>
                 ) : (
-                  // Social/Airdrop tasks need manual action
                   <button
                     onClick={() => handleTaskAction(task)}
-                    disabled={isCompleted}
+                    disabled={isCompleted || isProcessing}
                     className={`px-3 py-1 rounded-lg font-mono text-xs font-bold tracking-wider transition-all duration-300 ${
                       isCompleted
                         ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                        : isProcessing
+                        ? 'bg-orange-600 text-orange-200 cursor-not-allowed animate-pulse'
                         : 'bg-cyan-600 hover:bg-cyan-500 text-white border border-cyan-400'
                     }`}
                   >
-                    {isCompleted ? 'COMPLETED' : 'ACTION'}
+                    {isCompleted ? 'COMPLETED' : isProcessing ? 'PROCESSING...' : 'ACTION'}
                   </button>
                 )}
               </div>

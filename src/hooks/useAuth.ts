@@ -186,6 +186,17 @@ export const useAuth = () => {
       if (fetchError) {
         if (fetchError.code === 'PGRST116') {
           // User doesn't exist, proceed with creation
+          
+          // Generate referral code for new user
+          const generateUserReferralCode = (userId: number) => {
+            const baseCode = `DIVINE${userId.toString().padStart(6, '0')}`;
+            const userIdHash = userId.toString();
+            const suffix = userIdHash.split('').reduce((acc, char) => {
+              return ((acc << 5) - acc + char.charCodeAt(0)) & 0xFFFF;
+            }, 0);
+            return `${baseCode}${suffix.toString(36).toUpperCase().padStart(4, '0')}`;
+          };
+          
           const { data: newUser, error: createError } = await supabase
             .from('users')
             .insert([{
@@ -212,6 +223,18 @@ export const useAuth = () => {
             }])
             .select()
             .maybeSingle();
+          
+          // After user creation, update with referral code
+          if (newUser && !createError) {
+            const referralCode = generateUserReferralCode(newUser.id);
+            await supabase
+              .from('users')
+              .update({ referral_code: referralCode })
+              .eq('id', newUser.id);
+            
+            // Add referral code to the user object
+            newUser.referral_code = referralCode;
+          }
 
           if (createError) {
             if (createError.code === '23505') { // Unique constraint violation

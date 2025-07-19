@@ -1,9 +1,5 @@
 /* ReferralSystem.css - Futuristic styling for referral system */
 
-.referral-system {
-  /* Base styles inherited from parent */
-}
-
 /* Prevent layout shifts */
 .referral-system * {
   box-sizing: border-box;
